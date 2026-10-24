@@ -28,4 +28,7 @@ export const config = {
   offlineAfterSec: Number(env.OFFLINE_AFTER_SEC || 15),
   dashboardUser: env.DASHBOARD_USER || 'admin',
   dashboardPassword: env.DASHBOARD_PASSWORD || '',
+  spaceName: env.SPACE_NAME || 'My Space',
+  // Public dashboard URL, used for links in alert notifications.
+  publicUrl: env.PUBLIC_URL || '',
 };

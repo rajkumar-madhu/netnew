@@ -1,12 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
 
-export async function api(path, options) {
-  const res = await fetch(`/api${path}`, options);
+export async function api(path, options = {}) {
+  const init = { ...options };
+  if (init.body && typeof init.body !== 'string') {
+    init.body = JSON.stringify(init.body);
+    init.headers = { 'Content-Type': 'application/json', ...init.headers };
+  }
+  const res = await fetch(`/api${path}`, init);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `${res.status} ${res.statusText}`);
   }
   return res.status === 204 ? null : res.json();
+}
+
+// Builds a query string, skipping empty values.
+export function qs(params) {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v == null || v === '' || (Array.isArray(v) && !v.length)) continue;
+    search.set(k, Array.isArray(v) ? v.join(',') : String(v));
+  }
+  const s = search.toString();
+  return s ? `?${s}` : '';
 }
 
 // One shared WebSocket for the whole app; components subscribe with useLive.
@@ -52,23 +68,27 @@ export function useLiveStatus() {
   return value;
 }
 
-// Fetches `path` and refetches every `intervalMs` (if given) or when deps change.
-export function usePolling(path, intervalMs, deps = []) {
-  const [state, setState] = useState({ data: null, error: null });
+// Fetches `path` (when truthy) and refetches every `intervalMs` (if given),
+// whenever the path changes, or on reload().
+export function usePolling(path, intervalMs) {
+  const [state, setState] = useState({ data: null, error: null, loading: Boolean(path) });
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
     if (!path) return undefined;
     let cancelled = false;
+    setState((s) => ({ ...s, loading: true }));
     api(path)
-      .then((data) => !cancelled && setState({ data, error: null }))
-      .catch((error) => !cancelled && setState((s) => ({ data: s.data, error })));
+      .then((data) => !cancelled && setState({ data, error: null, loading: false }))
+      .catch((error) => !cancelled && setState((s) => ({ data: s.data, error, loading: false })));
     return () => { cancelled = true; };
-  }, [path, tick, ...deps]);
+  }, [path, tick]);
 
   useEffect(() => {
     if (!intervalMs) return undefined;
-    const id = setInterval(() => setTick((t) => t + 1), intervalMs);
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') setTick((t) => t + 1);
+    }, intervalMs);
     return () => clearInterval(id);
   }, [intervalMs]);
 

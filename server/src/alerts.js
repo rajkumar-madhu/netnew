@@ -35,6 +35,24 @@ export const RULE_NAMES = Object.fromEntries(
   [...RULES, OFFLINE_RULE].map((r) => [r.id, r.name]),
 );
 
+// Rule definitions as shown on the Alerts tab's configuration view.
+export function describeRules(offlineAfterSec) {
+  return [
+    ...RULES.map(({ id, name, window, warn, crit }) => ({
+      id, name, window, warn, crit, units: '%', hysteresis: HYSTERESIS,
+      description: `${window}s average; warning at ${warn}%, critical at ${crit}%. Clears ${HYSTERESIS} points below the threshold.`,
+    })),
+    {
+      ...OFFLINE_RULE,
+      window: offlineAfterSec,
+      warn: null,
+      crit: null,
+      units: 's',
+      description: `Critical when a node sends no data for ${offlineAfterSec}s.`,
+    },
+  ];
+}
+
 function level(avg, rule, current) {
   const critAt = current === 'critical' ? rule.crit - HYSTERESIS : rule.crit;
   const warnAt = current !== 'clear' ? rule.warn - HYSTERESIS : rule.warn;
@@ -43,6 +61,7 @@ function level(avg, rule, current) {
   return 'clear';
 }
 
+// onChange(kind, alert, previous) with kind 'raised' | 'changed' | 'cleared'.
 export function createAlertEngine(db, onChange) {
   const windows = new Map(); // "node:rule" -> [{ ts, v }]
   const active = new Map(db.activeAlerts().map((a) => [`${a.node_id}:${a.rule}`, a]));
@@ -52,16 +71,18 @@ export function createAlertEngine(db, onChange) {
     const current = active.get(key);
     if ((current?.severity ?? 'clear') === severity) return;
 
+    const previous = current ? { ...current, cleared_at: ts } : null;
     if (current) {
       db.clearAlert(current.id, ts);
       active.delete(key);
-      onChange({ ...current, cleared_at: ts });
     }
-    if (severity !== 'clear') {
-      const alert = db.openAlert({ node_id: nodeId, rule: rule.id, severity, value, message, started_at: ts });
-      active.set(key, alert);
-      onChange(alert);
+    if (severity === 'clear') {
+      onChange('cleared', previous, null);
+      return;
     }
+    const alert = db.openAlert({ node_id: nodeId, rule: rule.id, severity, value, message, started_at: ts });
+    active.set(key, alert);
+    onChange(previous ? 'changed' : 'raised', alert, previous);
   }
 
   return {

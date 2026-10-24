@@ -5,9 +5,13 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { createAlertEngine, RULE_NAMES } from './alerts.js';
+import { createAnomalyDetector } from './anomalies.js';
+import { createApi } from './api.js';
 import { config } from './config.js';
 import { METRICS, openDb } from './db.js';
+import { createNotifier } from './notify.js';
 
+const VERSION = '0.2.0';
 const WEB_DIST = fileURLToPath(new URL('../../web/dist', import.meta.url));
 const AGENT_DIR = fileURLToPath(new URL('../../agent', import.meta.url));
 const INSTALL_SCRIPT = fileURLToPath(new URL('./install.sh', import.meta.url));
@@ -19,7 +23,8 @@ const db = openDb(config.dbPath);
 const dashboards = new Set(); // browser sockets receiving live updates
 const agents = new Map(); // nodeId -> agent socket
 const lastSeen = new Map(); // nodeId -> unix seconds of the last sample received
-const latest = new Map(); // nodeId -> most recent sample
+const latest = new Map(); // nodeId -> most recent summary sample
+const processes = new Map(); // nodeId -> latest process snapshot (memory only)
 
 for (const node of db.listNodes()) {
   const m = db.latestMetric(node.id);
@@ -31,14 +36,38 @@ function broadcast(msg) {
   for (const ws of dashboards) if (ws.readyState === ws.OPEN) ws.send(data);
 }
 
-const alerts = createAlertEngine(db, (alert) => {
-  broadcast({ type: 'alert', alert: decorateAlert(alert) });
-  broadcastNode(alert.node_id);
-});
+function addEvent(nodeId, type, severity, message) {
+  const event = db.addEvent(now(), nodeId, type, severity, message);
+  broadcast({ type: 'event', event: { ...event, hostname: nodeId ? db.getNode(nodeId)?.hostname : null } });
+}
 
 function decorateAlert(a) {
   return { ...a, name: RULE_NAMES[a.rule] ?? a.rule, hostname: a.hostname ?? db.getNode(a.node_id)?.hostname };
 }
+
+const notifier = createNotifier({
+  db,
+  publicUrl: config.publicUrl,
+  onFailure: (channel, err) => {
+    console.warn(`notification to "${channel.name}" failed: ${err.message}`);
+    addEvent(null, 'notification.failed', 'warning', `Notification to "${channel.name}" failed: ${err.message}`);
+  },
+});
+
+const alerts = createAlertEngine(db, (kind, alert) => {
+  const decorated = decorateAlert(alert);
+  const host = decorated.hostname ?? alert.node_id;
+  if (kind === 'cleared') {
+    addEvent(alert.node_id, 'alert.cleared', 'clear', `${decorated.name} cleared`);
+  } else {
+    addEvent(alert.node_id, `alert.${kind}`, alert.severity, alert.message);
+  }
+  notifier.onAlert(kind, decorated, host);
+  broadcast({ type: 'alert', kind, alert: decorated });
+  broadcastNode(alert.node_id);
+});
+
+const anomalies = createAnomalyDetector(db);
 
 // "Fresh" means data arrived recently; "online" additionally needs a live
 // connection. Alerts key off freshness so a quick agent restart doesn't page.
@@ -65,6 +94,7 @@ function nodeSummary(row) {
     firstSeen: row.first_seen,
     lastSeen: Math.max(row.last_seen, lastSeen.get(row.id) ?? 0),
     online: isOnline(row.id),
+    connected: agents.has(row.id),
     latest: sample ? Object.fromEntries(['ts', ...METRICS].map((k) => [k, sample[k]])) : null,
     alerts: alerts.countsFor(row.id),
   };
@@ -75,7 +105,38 @@ function broadcastNode(id) {
   if (node) broadcast({ type: 'node', node });
 }
 
+function removeNode(node) {
+  db.deleteNode(node.id);
+  alerts.forgetNode(node.id);
+  anomalies.forgetNode(node.id);
+  latest.delete(node.id);
+  lastSeen.delete(node.id);
+  processes.delete(node.id);
+  addEvent(null, 'node.removed', 'info', `Node ${node.hostname} was removed`);
+  broadcast({ type: 'node_removed', id: node.id });
+}
+
 // ---------------------------------------------------------------- ingestion
+
+const CONTEXT_RE = /^[a-z0-9_.]{1,64}$/;
+
+function sanitizeCharts(d) {
+  if (!Array.isArray(d)) return [];
+  const out = [];
+  for (const entry of d.slice(0, 500)) {
+    if (!Array.isArray(entry) || entry.length !== 3) continue;
+    const [context, instance, dims] = entry;
+    if (typeof context !== 'string' || !CONTEXT_RE.test(context)) continue;
+    if (typeof instance !== 'string' || instance.length > 128) continue;
+    if (!dims || typeof dims !== 'object') continue;
+    const clean = {};
+    for (const [k, v] of Object.entries(dims).slice(0, 256)) {
+      if (k.length <= 64 && typeof v === 'number' && Number.isFinite(v)) clean[k] = v;
+    }
+    if (Object.keys(clean).length) out.push([context, instance, clean]);
+  }
+  return out;
+}
 
 function sanitizeSample(s) {
   const t = now();
@@ -86,7 +147,7 @@ function sanitizeSample(s) {
     const v = Number(s.m?.[k]);
     m[k] = s.m?.[k] == null || !Number.isFinite(v) ? null : v;
   }
-  return { ts, m };
+  return { ts, m, d: sanitizeCharts(s.d) };
 }
 
 function ingest(nodeId, rawSamples) {
@@ -94,7 +155,10 @@ function ingest(nodeId, rawSamples) {
   if (!samples.length) return;
 
   db.transaction(() => {
-    for (const { ts, m } of samples) db.insertMetric(nodeId, ts, m);
+    for (const { ts, m, d } of samples) {
+      db.insertMetric(nodeId, ts, m);
+      for (const [context, instance, dims] of d) db.insertChart(nodeId, ts, context, instance, dims);
+    }
     db.touchNode(nodeId, samples.at(-1).ts);
   });
 
@@ -103,6 +167,7 @@ function ingest(nodeId, rawSamples) {
   const fresh = now() - 10;
   for (const { ts, m } of samples) {
     alerts.onSample(nodeId, ts, m);
+    anomalies.observe(nodeId, ts, m);
     if (ts >= (latest.get(nodeId)?.ts ?? 0)) latest.set(nodeId, { ts, ...m });
     if (ts >= fresh) broadcast({ type: 'sample', nodeId, ts, m });
   }
@@ -137,6 +202,27 @@ function sanitizeNode(n) {
   };
 }
 
+function sanitizeProcesses(msg) {
+  const str = (v, max = 100) => (v == null ? '' : String(v).slice(0, max));
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  const counts = msg.counts ?? {};
+  return {
+    ts: num(msg.ts) ?? now(),
+    counts: { all: num(counts.all), running: num(counts.running), blocked: num(counts.blocked), sleeping: num(counts.sleeping) },
+    list: (Array.isArray(msg.list) ? msg.list.slice(0, 100) : []).map((p) => ({
+      pid: num(p.pid),
+      name: str(p.name),
+      user: str(p.user, 64),
+      cpu: num(p.cpu),
+      mem: num(p.mem),
+      rss: num(p.rss),
+      state: str(p.state, 32),
+      started: str(p.started, 32),
+      command: str(p.command, 300),
+    })),
+  };
+}
+
 function handleAgent(ws) {
   let nodeId = null;
   ws.isAlive = true;
@@ -150,14 +236,16 @@ function handleAgent(ws) {
       const node = sanitizeNode(msg.node);
       if (!node) return ws.close(4000, 'invalid node info');
       if (nodeId && node.id !== nodeId) return ws.close(4000, 'node id changed');
+      const isNew = db.upsertNode(node, now());
       if (!nodeId) {
         nodeId = node.id;
         const previous = agents.get(nodeId);
         if (previous && previous !== ws) previous.close(4001, 'replaced by a newer connection');
         agents.set(nodeId, ws);
         console.log(`agent connected: ${node.hostname} (${nodeId})`);
+        if (isNew) addEvent(nodeId, 'node.created', 'info', `New node ${node.hostname} joined the space`);
+        addEvent(nodeId, 'node.connected', 'info', `Agent connected (${node.agentVersion ?? 'unknown version'})`);
       }
-      db.upsertNode(node, now());
       broadcastNode(nodeId);
     } else if (!nodeId) {
       ws.close(4000, 'hello required');
@@ -165,6 +253,8 @@ function handleAgent(ws) {
       ingest(nodeId, [msg]);
     } else if (msg.type === 'batch' && Array.isArray(msg.samples)) {
       ingest(nodeId, msg.samples.slice(0, 5000));
+    } else if (msg.type === 'processes') {
+      processes.set(nodeId, sanitizeProcesses(msg));
     }
   });
 
@@ -172,6 +262,7 @@ function handleAgent(ws) {
     if (nodeId && agents.get(nodeId) === ws) {
       agents.delete(nodeId);
       console.log(`agent disconnected: ${nodeId}`);
+      addEvent(nodeId, 'node.disconnected', 'warning', 'Agent disconnected');
       broadcastNode(nodeId);
     }
   });
@@ -195,19 +286,20 @@ function dashboardAuthorized(req) {
     && safeEqual(decoded.slice(sep + 1), config.dashboardPassword);
 }
 
-// Netdata-style time ranges: after/before are absolute unix seconds, or
-// relative to now when <= 0 (after=-900&before=0 is "the last 15 minutes").
-function parseRange(q, defaultPoints) {
-  const t = now();
-  const after = Number(q.after ?? -900);
-  const before = Number(q.before ?? 0);
-  const to = Math.floor(before <= 0 ? t + before : before);
-  let from = Math.floor(after <= 0 ? t + after : after);
-  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
-  if (from >= to) from = to - 1;
-  const points = Math.min(2000, Math.max(10, Number(q.points) || defaultPoints));
-  return { from, to, points };
-}
+const core = {
+  db,
+  config,
+  version: VERSION,
+  now,
+  startedAt,
+  agents,
+  processes,
+  nodeSummary,
+  decorateAlert,
+  broadcast,
+  notifier,
+  removeNode,
+};
 
 const app = express();
 app.disable('x-powered-by');
@@ -230,56 +322,7 @@ app.use((req, res, next) => {
   res.set('WWW-Authenticate', 'Basic realm="NetNew"').sendStatus(401);
 });
 
-const api = express.Router();
-
-api.get('/health', (req, res) => {
-  res.json({ ok: true, uptime: now() - startedAt, agents: agents.size });
-});
-
-api.get('/nodes', (req, res) => {
-  res.json(db.listNodes().map(nodeSummary));
-});
-
-api.get('/nodes/:id', (req, res) => {
-  const node = nodeSummary(db.getNode(req.params.id));
-  if (!node) return res.status(404).json({ error: 'node not found' });
-  res.json(node);
-});
-
-api.delete('/nodes/:id', (req, res) => {
-  const { id } = req.params;
-  if (!db.getNode(id)) return res.status(404).json({ error: 'node not found' });
-  if (agents.has(id)) return res.status(409).json({ error: 'node is connected; stop its agent first' });
-  db.deleteNode(id);
-  alerts.forgetNode(id);
-  latest.delete(id);
-  lastSeen.delete(id);
-  broadcast({ type: 'node_removed', id });
-  res.status(204).end();
-});
-
-api.get('/nodes/:id/metrics', (req, res) => {
-  if (!db.getNode(req.params.id)) return res.status(404).json({ error: 'node not found' });
-  const range = parseRange(req.query, 900);
-  if (!range) return res.status(400).json({ error: 'invalid after/before' });
-  res.json({ ...range, ...db.history(req.params.id, range.from, range.to, range.points) });
-});
-
-api.get('/overview', (req, res) => {
-  const range = parseRange(req.query, 300);
-  if (!range) return res.status(400).json({ error: 'invalid after/before' });
-  const data = db.overview(String(req.query.metric || 'cpu'), range.from, range.to, range.points);
-  if (!data) return res.status(400).json({ error: 'unknown metric' });
-  res.json({ ...range, ...data });
-});
-
-api.get('/alerts', (req, res) => {
-  const rows = req.query.state === 'active' ? db.activeAlerts() : db.recentAlerts(200);
-  res.json(rows.map(decorateAlert));
-});
-
-app.use('/api', api);
-app.use('/api', (req, res) => res.status(404).json({ error: 'not found' }));
+app.use('/api', createApi(core));
 
 if (existsSync(WEB_DIST)) {
   app.use(express.static(WEB_DIST));
@@ -293,7 +336,7 @@ if (existsSync(WEB_DIST)) {
 // ---------------------------------------------------------------- WebSockets
 
 const server = createServer(app);
-const agentWss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
+const agentWss = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 });
 const liveWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
 server.on('upgrade', (req, socket, head) => {
@@ -339,8 +382,12 @@ setInterval(() => {
   db.prune(t - config.retentionHours * 3600, t - 7 * 86400);
 }, 10 * 60_000).unref();
 
+// Per-minute rollups for long-range charts.
+db.rollup(now());
+setInterval(() => db.rollup(now()), 60_000).unref();
+
 server.listen(config.port, config.host, () => {
-  console.log(`NetNew server listening on http://${config.host}:${config.port}`);
+  console.log(`NetNew server ${VERSION} listening on http://${config.host}:${config.port}`);
   if (!config.agentTokenFromEnv) {
     console.log(`Agent token (saved in ${config.dataDir}/agent-token): ${config.agentToken}`);
   }
