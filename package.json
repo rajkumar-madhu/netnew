@@ -1,0 +1,21 @@
+{
+  "name": "netnew",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real-time infrastructure monitoring: lightweight agents, a Node.js server and a React dashboard.",
+  "workspaces": [
+    "server",
+    "web",
+    "agent"
+  ],
+  "scripts": {
+    "build": "npm run build -w web",
+    "start": "npm start -w server",
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "dev:agent": "npm run dev -w agent"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

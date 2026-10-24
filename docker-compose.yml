@@ -1,0 +1,16 @@
+services:
+  netnew:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - netnew-data:/data
+    environment:
+      # Set these in a .env file next to this compose file.
+      AGENT_TOKEN: ${AGENT_TOKEN:-}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      RETENTION_HOURS: ${RETENTION_HOURS:-24}
+    restart: unless-stopped
+
+volumes:
+  netnew-data:

@@ -1,0 +1,22 @@
+{
+  "name": "@netnew/agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NetNew monitoring agent: streams system metrics to a NetNew server every second.",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "netnew-agent": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --env-file-if-exists=.env index.js"
+  },
+  "dependencies": {
+    "systeminformation": "^5.27.0",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
