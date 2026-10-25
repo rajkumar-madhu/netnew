@@ -29,6 +29,8 @@ export const config = {
   dashboardUser: env.DASHBOARD_USER || 'admin',
   dashboardPassword: env.DASHBOARD_PASSWORD || '',
   spaceName: env.SPACE_NAME || 'My Space',
+  logRetentionHours: Number(env.LOG_RETENTION_HOURS || 72),
+  logMaxRows: Number(env.LOG_MAX_ROWS || 2_000_000),
   // Public dashboard URL, used for links in alert notifications.
   publicUrl: env.PUBLIC_URL || '',
 };

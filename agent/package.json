@@ -1,6 +1,6 @@
 {
   "name": "@netnew/agent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "NetNew monitoring agent: streams system metrics to a NetNew server every second.",
   "type": "module",
@@ -18,5 +18,9 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "optionalDependencies": {
+    "mysql2": "^3.14.0",
+    "pg": "^8.16.0"
   }
 }

@@ -12,8 +12,12 @@ import os from 'node:os';
 import { join } from 'node:path';
 import si from 'systeminformation';
 import WebSocket from 'ws';
+import { createContainerCollector } from './containers.js';
+import { createJobRunner } from './jobs.js';
+import { createLogCollector } from './logs.js';
+import { createServiceCollector } from './services.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const SERVER_URL = process.env.NETNEW_URL || 'http://localhost:3000';
 const TOKEN = process.env.NETNEW_TOKEN;
 const INTERVAL_MS = Math.max(250, Number(process.env.NETNEW_INTERVAL_MS) || 1000);
@@ -26,6 +30,10 @@ const PROCESSES_EVERY_MS = 3_000;
 const SENSORS_EVERY_MS = 10_000;
 const TOP_PROCESSES = 60;
 const IS_LINUX = process.platform === 'linux';
+// Comma-separated log files to tail, e.g. /var/log/nginx/error.log,/var/log/app.log
+const LOG_FILES = (process.env.NETNEW_LOG_FILES || '').split(',').map((s) => s.trim()).filter(Boolean);
+// Modules to turn off: any of logs, journal, containers, services, processes.
+const DISABLED = new Set((process.env.NETNEW_DISABLE || '').split(',').map((s) => s.trim()).filter(Boolean));
 
 // Virtual and pseudo filesystems/interfaces/disks that would double count or add noise.
 const IGNORED_FS = /^(tmpfs|devtmpfs|squashfs|proc|sysfs|cgroup2?|devpts|mqueue|efivarfs|nsfs|autofs|tracefs|debugfs|securityfs|fusectl|configfs|pstore|bpf|hugetlbfs|ramfs|binfmt_misc)$/;
@@ -400,6 +408,7 @@ async function collect() {
   for (const f of filesystems) chart('disk.space', f.mount, { used: f.used, avail: f.size - f.used });
 
   if (temperatures) chart('sensors.temperature', '', temperatures);
+  for (const m of modules) if (m.drainCharts) charts.push(...m.drainCharts());
 
   const pcts = filesystems.map((f) => f.pct).filter(Number.isFinite);
   return {
@@ -427,6 +436,7 @@ async function collect() {
 // ---------------------------------------------------------------- connection
 
 const nodeId = loadNodeId();
+const modules = [];
 await refreshFilesystems();
 let info = await collectInfo(nodeId);
 let socket = null;
@@ -452,6 +462,14 @@ function connect() {
     send({ type: 'hello', node: info });
     if (buffer.length) send({ type: 'batch', samples: buffer.splice(0) });
     if (processes) send({ type: 'processes', ...processes });
+    for (const m of modules) m.resend?.();
+  });
+
+  // The server pushes configuration (collector jobs) after the hello.
+  socket.on('message', (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+    if (msg.type === 'config') jobs.configure(msg.jobs);
   });
 
   socket.on('close', (code, reason) => {
@@ -494,15 +512,25 @@ setInterval(async () => {
 
 function stop() {
   stopping = true;
+  for (const m of modules) m.stop();
   socket?.close(1000, 'agent stopping');
   setTimeout(() => process.exit(0), 500).unref();
 }
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
 
+const jobs = createJobRunner({ send, log });
+modules.push(jobs);
+if (!DISABLED.has('logs')) {
+  modules.push(createLogCollector({ send, log, files: LOG_FILES, journal: IS_LINUX && !DISABLED.has('journal') }));
+}
+if (!DISABLED.has('containers')) modules.push(createContainerCollector({ send, log, nodeName: os.hostname() }));
+if (!DISABLED.has('services')) modules.push(createServiceCollector({ send, log }));
+
 log(`NetNew agent ${VERSION} starting`);
 await collect(); // prime counters so the first real sample has rates
 connect();
-refreshProcesses();
+for (const m of modules) m.start?.();
+if (!DISABLED.has('processes')) refreshProcesses();
 refreshSensors();
 setTimeout(tick, INTERVAL_MS);

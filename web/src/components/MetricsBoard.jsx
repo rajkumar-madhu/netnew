@@ -44,7 +44,7 @@ function useActiveSection(sections) {
  * the right. With `filterNodes`, the right panel also lets you narrow the
  * charts to some of the scope's nodes.
  */
-export default function MetricsBoard({ room, nodes, filterNodes = true, summary = true }) {
+export default function MetricsBoard({ room, nodes, filterNodes = true, summary = true, sections: only }) {
   const time = useTime();
   const [selected, setSelected] = useState(null); // null = all nodes in scope
   const [nodeQuery, setNodeQuery] = useState('');
@@ -55,7 +55,7 @@ export default function MetricsBoard({ room, nodes, filterNodes = true, summary 
   // The chart list only changes when nodes/instances come and go: refresh it
   // when the window changes and once a minute while live.
   const { data, error } = usePolling(`/contexts${qs({ room: scope.room, nodes: scope.nodes, after: time.query.after, before: time.query.before })}`, time.live ? 60_000 : 0);
-  const sections = data?.sections ?? [];
+  const sections = (data?.sections ?? []).filter((s) => !only || only.includes(s));
   const active = useActiveSection(sections);
 
   const toggleNode = (id) => setSelected((cur) => {
@@ -73,7 +73,7 @@ export default function MetricsBoard({ room, nodes, filterNodes = true, summary 
     <div className="metrics-layout">
       <div className="metrics-main">
         {summary && <SummaryStrip nodes={summaryNodes} />}
-        {!data.contexts.length && (
+        {!data.contexts.some((c) => sections.includes(c.section)) && (
           <Empty icon="metrics" title="No metrics in this time range">
             Charts appear as soon as a node in this scope sends data.
           </Empty>

@@ -49,11 +49,15 @@ export function shapeContext({ rows, bucket, groupBy, agg, nodeNames, dimFilter 
   }
 
   // Shared x axis: every bucket that has data, plus a null slot in long gaps
-  // so lines break instead of drawing across missing data.
+  // so lines break instead of drawing across missing data. Collectors that run
+  // every few seconds (containers, service checks) leave regular holes in
+  // per-second buckets, so only gaps well beyond the usual spacing count.
   const present = [...new Set(rows.map((r) => r.t))].sort((a, b) => a - b);
+  const spacings = present.slice(1).map((t, i) => t - present[i]).sort((a, b) => a - b);
+  const typical = Math.max(bucket, spacings[Math.floor(spacings.length / 2)] ?? bucket);
   const ts = [];
   for (let i = 0; i < present.length; i++) {
-    if (i > 0 && present[i] - present[i - 1] > bucket * 3) ts.push(present[i - 1] + bucket);
+    if (i > 0 && present[i] - present[i - 1] > typical * 3) ts.push(present[i - 1] + typical);
     ts.push(present[i]);
   }
 

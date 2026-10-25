@@ -18,7 +18,7 @@ COPY web/package.json web/
 COPY agent/package.json agent/
 RUN npm ci --omit=dev --no-audit --no-fund -w server && npm cache clean --force
 COPY server server
-COPY agent/index.js agent/
+COPY agent/*.js agent/package.json agent/
 COPY --from=build /app/web/dist web/dist
 VOLUME /data
 EXPOSE 3000

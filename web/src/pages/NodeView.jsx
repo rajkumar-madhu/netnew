@@ -6,11 +6,17 @@ import MetricsBoard from '../components/MetricsBoard.jsx';
 import ProcessTable from '../components/ProcessTable.jsx';
 import { PageHeader } from '../components/RoomLayout.jsx';
 import TimePicker from '../components/TimePicker.jsx';
+import { ContainersView } from './Containers.jsx';
+import { LogExplorer } from './Logs.jsx';
+import { ServicesView } from './Services.jsx';
 import { ago, bytes, dateTime, duration, nowSec, pct } from '../format.js';
 import { useSpace } from '../state/space.jsx';
 
 const TABS = [
   { id: 'metrics', label: 'Metrics', icon: 'metrics' },
+  { id: 'logs', label: 'Logs', icon: 'logs' },
+  { id: 'containers', label: 'Containers', icon: 'container' },
+  { id: 'services', label: 'Services', icon: 'services' },
   { id: 'top', label: 'Top', icon: 'top' },
   { id: 'alerts', label: 'Alerts', icon: 'alerts' },
   { id: 'info', label: 'Info', icon: 'info' },
@@ -84,6 +90,9 @@ export default function NodeView() {
         )}
 
         {tab === 'metrics' && <MetricsBoard nodes={[node]} filterNodes={false} />}
+        {tab === 'logs' && <LogExplorer roomId="all" nodes={[node]} single />}
+        {tab === 'containers' && <ContainersView roomId="all" nodes={[node]} single />}
+        {tab === 'services' && <ServicesView roomId="all" nodes={[node]} single />}
 
         {tab === 'top' && (node.online
           ? <ProcessTable nodeId={nodeId} />

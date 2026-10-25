@@ -50,6 +50,9 @@ export function formatterFor(units) {
     case 'seconds': return duration;
     case 'load': return (v) => num(v);
     case '°C': return (v) => (v == null ? '–' : `${v.toFixed(1)} °C`);
+    case 'ms': return (v) => (v == null ? '–' : v >= 1000 ? `${(v / 1000).toFixed(2)} s` : `${compact(v)} ms`);
+    // Check status: 1 = up, 0 = down; in-between values are averages over a bucket.
+    case 'up': return (v) => (v == null ? '–' : v === 1 ? 'up' : v === 0 ? 'down' : `${Math.round(v * 100)}% up`);
     default: return compact;
   }
 }

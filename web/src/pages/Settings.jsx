@@ -4,6 +4,7 @@ import { api, usePolling } from '../api.js';
 import { CodeBlock, Empty, Loading } from '../components/Bits.jsx';
 import Icon from '../components/Icon.jsx';
 import { useIntegrations } from '../components/IntegrationsModal.jsx';
+import { JobDialog, JobsTable, NoJobs, useJobNodes } from '../components/Jobs.jsx';
 import RoomDialog from '../components/RoomDialog.jsx';
 import { PageHeader } from '../components/RoomLayout.jsx';
 import { useSpace } from '../state/space.jsx';
@@ -11,6 +12,7 @@ import { useSpace } from '../state/space.jsx';
 const SECTIONS = [
   { id: 'general', label: 'General' },
   { id: 'rooms', label: 'Rooms' },
+  { id: 'collectors', label: 'Collectors' },
   { id: 'notifications', label: 'Alert notifications' },
 ];
 
@@ -90,6 +92,22 @@ function Rooms() {
         </table>
       </div>
       {editing && <RoomDialog room={editing.id ? editing : null} onClose={() => setEditing(null)} />}
+    </>
+  );
+}
+
+function Collectors() {
+  const { data, reload } = usePolling('/jobs', 5000);
+  const nodes = useJobNodes();
+  const [adding, setAdding] = useState(false);
+  return (
+    <>
+      <div className="toolbar">
+        <p className="muted">Service checks and application collectors for every node. Each job runs on the agent of the node it belongs to.</p>
+        <button type="button" className="primary push" onClick={() => setAdding(true)}><Icon name="plus" size={15} /> Add check or collector</button>
+      </div>
+      {data?.length === 0 ? <NoJobs onAdd={() => setAdding(true)} /> : <JobsTable jobs={data} nodes={nodes} onChanged={reload} />}
+      {adding && <JobDialog nodes={nodes} onClose={() => setAdding(false)} onSaved={reload} />}
     </>
   );
 }
@@ -229,6 +247,7 @@ export default function Settings() {
       <div className="page settings">
         {section === 'general' && <General />}
         {section === 'rooms' && <Rooms />}
+        {section === 'collectors' && <Collectors />}
         {section === 'notifications' && <Notifications />}
       </div>
     </>

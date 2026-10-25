@@ -145,6 +145,27 @@ export function openDb(path) {
       enabled      INTEGER NOT NULL DEFAULT 1,
       created_at   INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS dashboards (
+      id          TEXT PRIMARY KEY,
+      room_id     TEXT NOT NULL,
+      name        TEXT NOT NULL,
+      description TEXT,
+      items       TEXT NOT NULL DEFAULT '[]',
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS collector_jobs (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      node_id    TEXT NOT NULL,
+      name       TEXT NOT NULL,
+      type       TEXT NOT NULL,
+      config     TEXT NOT NULL,
+      enabled    INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   const stmts = {
@@ -255,6 +276,7 @@ export function openDb(path) {
   let rolledUpTo = newestRollup == null ? 0 : newestRollup + TIER1_BUCKET;
 
   return {
+    raw: db,
     transaction,
 
     // ------------------------------------------------------------ nodes
@@ -285,7 +307,7 @@ export function openDb(path) {
       transaction(() => {
         db.prepare('DELETE FROM samples WHERE dim_id IN (SELECT id FROM dims WHERE node_id = ?)').run(id);
         db.prepare('DELETE FROM samples_1m WHERE dim_id IN (SELECT id FROM dims WHERE node_id = ?)').run(id);
-        for (const table of ['dims', 'metrics', 'alerts', 'anomalies', 'room_nodes']) {
+        for (const table of ['dims', 'metrics', 'alerts', 'anomalies', 'room_nodes', 'collector_jobs']) {
           db.prepare(`DELETE FROM ${table} WHERE node_id = ?`).run(id);
         }
         db.prepare('DELETE FROM nodes WHERE id = ?').run(id);
@@ -433,6 +455,7 @@ export function openDb(path) {
     updateRoom: (id, name, description) => stmts.updateRoom.get(name, description ?? '', id),
     deleteRoom(id) {
       transaction(() => {
+        db.prepare('DELETE FROM dashboards WHERE room_id = ?').run(id);
         stmts.clearRoomNodes.run(id);
         stmts.deleteRoom.run(id);
       });
@@ -491,6 +514,40 @@ export function openDb(path) {
     createChannel: (c, now) => stmts.insertChannel.get(c.name, c.type, c.url, c.min_severity, c.enabled ? 1 : 0, now),
     updateChannel: (id, c) => stmts.updateChannel.get(c.name, c.type, c.url, c.min_severity, c.enabled ? 1 : 0, id),
     deleteChannel: (id) => stmts.deleteChannel.run(id),
+
+    // ------------------------------------------------------------ dashboards
+    listDashboards: (roomId) => db.prepare(`
+      SELECT id, room_id, name, description, json_array_length(items) AS charts, created_at, updated_at
+      FROM dashboards WHERE room_id = ? ORDER BY name COLLATE NOCASE`).all(roomId),
+    getDashboard(id) {
+      const row = db.prepare('SELECT * FROM dashboards WHERE id = ?').get(id);
+      return row && { ...row, items: JSON.parse(row.items) };
+    },
+    createDashboard(d, now) {
+      const id = randomBytes(6).toString('hex');
+      db.prepare(`INSERT INTO dashboards (id, room_id, name, description, items, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, d.room_id, d.name, d.description, JSON.stringify(d.items), now, now);
+      return this.getDashboard(id);
+    },
+    updateDashboard(id, d, now) {
+      db.prepare('UPDATE dashboards SET name = ?, description = ?, items = ?, updated_at = ? WHERE id = ?')
+        .run(d.name, d.description, JSON.stringify(d.items), now, id);
+      return this.getDashboard(id);
+    },
+    deleteDashboard: (id) => db.prepare('DELETE FROM dashboards WHERE id = ?').run(id),
+
+    // ------------------------------------------------------------ collector jobs
+    listJobs: () => db.prepare('SELECT * FROM collector_jobs ORDER BY name COLLATE NOCASE').all(),
+    jobsForNode: (nodeId) => db.prepare('SELECT * FROM collector_jobs WHERE node_id = ? AND enabled = 1').all(nodeId),
+    getJob: (id) => db.prepare('SELECT * FROM collector_jobs WHERE id = ?').get(id),
+    createJob: (j, now) => db.prepare(`
+      INSERT INTO collector_jobs (node_id, name, type, config, enabled, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`)
+      .get(j.node_id, j.name, j.type, JSON.stringify(j.config), j.enabled ? 1 : 0, now, now),
+    updateJob: (id, j, now) => db.prepare(`
+      UPDATE collector_jobs SET name = ?, config = ?, enabled = ?, updated_at = ? WHERE id = ? RETURNING *`)
+      .get(j.name, JSON.stringify(j.config), j.enabled ? 1 : 0, now, id),
+    deleteJob: (id) => db.prepare('DELETE FROM collector_jobs WHERE id = ?').run(id),
 
     // ------------------------------------------------------------ retention
     prune(metricsBefore, historyBefore) {

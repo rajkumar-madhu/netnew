@@ -4,11 +4,15 @@ import RoomLayout from './components/RoomLayout.jsx';
 import Shell from './components/Shell.jsx';
 import Alerts from './pages/Alerts.jsx';
 import Anomalies from './pages/Anomalies.jsx';
+import Containers from './pages/Containers.jsx';
+import { DashboardList, DashboardView } from './pages/Dashboards.jsx';
 import Events from './pages/Events.jsx';
 import Home from './pages/Home.jsx';
+import Logs from './pages/Logs.jsx';
 import Metrics from './pages/Metrics.jsx';
 import NodeView from './pages/NodeView.jsx';
 import Nodes from './pages/Nodes.jsx';
+import Services from './pages/Services.jsx';
 import Settings from './pages/Settings.jsx';
 import Top from './pages/Top.jsx';
 import { SpaceProvider } from './state/space.jsx';
@@ -36,6 +40,11 @@ export default function App() {
                 <Route path="home" element={<Home />} />
                 <Route path="nodes" element={<Nodes />} />
                 <Route path="metrics" element={<Metrics />} />
+                <Route path="dashboards" element={<DashboardList />} />
+                <Route path="dashboards/:dashboardId" element={<DashboardView />} />
+                <Route path="logs" element={<Logs />} />
+                <Route path="containers" element={<Containers />} />
+                <Route path="services" element={<Services />} />
                 <Route path="top" element={<Top />} />
                 <Route path="events" element={<Events />} />
                 <Route path="alerts" element={<Alerts />} />

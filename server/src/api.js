@@ -1,7 +1,8 @@
 import express from 'express';
 import { describeRules } from './alerts.js';
 import { ANOMALY_METRICS } from './anomalies.js';
-import { describeContext, SECTIONS } from './contexts.js';
+import { CONTEXTS, describeContext, SECTIONS } from './contexts.js';
+import { JOB_TYPES, publicJob, validateJob } from './jobs.js';
 import { validateChannel } from './notify.js';
 import { AGGREGATIONS, GROUPINGS, shapeContext } from './shape.js';
 
@@ -170,6 +171,11 @@ export function createApi(core) {
     res.json({ ...r, ...data });
   }));
 
+  // Every known chart context, whether or not any node reports it yet.
+  api.get('/catalog', (req, res) => {
+    res.json({ sections: SECTIONS, contexts: Object.keys(CONTEXTS).map(describeContext) });
+  });
+
   api.get('/contexts', withScope((req, res, ids) => {
     const r = range(req, 300);
     if (!r) return bad(res, 'invalid after/before');
@@ -299,6 +305,167 @@ export function createApi(core) {
     } catch (err) {
       bad(res, `delivery failed: ${err.message}`, 502);
     }
+  });
+
+  // ------------------------------------------------------------ logs
+
+  // Shared log filters. Time ranges come in seconds and are stored in ms.
+  function logFilters(req, ids) {
+    const r = range(req, 120);
+    if (!r) return null;
+    return {
+      nodeIds: ids,
+      from: r.from * 1000,
+      to: r.to * 1000 + 999,
+      q: String(req.query.q ?? '').slice(0, 200),
+      levels: csv(req.query.level),
+      services: csv(req.query.service),
+      nodes: csv(req.query.node),
+      points: r.points,
+    };
+  }
+
+  api.get('/logs', withScope((req, res, ids) => {
+    const f = logFilters(req, ids);
+    if (!f) return bad(res, 'invalid after/before');
+    const limit = Math.min(1000, Math.max(1, Number(req.query.limit) || 200));
+    const rows = core.logs.query({
+      ...f, limit, beforeId: Number(req.query.before_id) || null, afterId: Number(req.query.after_id) || null,
+    });
+    res.json(rows);
+  }));
+
+  api.get('/logs/histogram', withScope((req, res, ids) => {
+    const f = logFilters(req, ids);
+    if (!f) return bad(res, 'invalid after/before');
+    res.json(core.logs.histogram(f, f.points));
+  }));
+
+  api.get('/logs/facets', withScope((req, res, ids) => {
+    const f = logFilters(req, ids);
+    if (!f) return bad(res, 'invalid after/before');
+    res.json(core.logs.facets(f));
+  }));
+
+  // ------------------------------------------------------------ dashboards
+
+  const ITEM_KINDS = ['chart', 'note'];
+  function validateDashboard(body, existing) {
+    const name = String(body?.name ?? existing?.name ?? '').trim().slice(0, 80);
+    if (!name) return { error: 'name is required' };
+    const items = body?.items ?? existing?.items ?? [];
+    if (!Array.isArray(items) || items.length > 60) return { error: 'items must be an array of at most 60 entries' };
+    const clean = [];
+    for (const it of items) {
+      if (!ITEM_KINDS.includes(it?.kind)) return { error: 'each item needs kind chart or note' };
+      const base = {
+        id: String(it.id ?? Math.random().toString(36).slice(2, 10)).slice(0, 20),
+        kind: it.kind,
+        width: [3, 4, 6, 8, 12].includes(Number(it.width)) ? Number(it.width) : 6,
+        height: Math.min(520, Math.max(120, Number(it.height) || 220)),
+        title: String(it.title ?? '').slice(0, 100),
+      };
+      if (it.kind === 'note') {
+        clean.push({ ...base, text: String(it.text ?? '').slice(0, 4000) });
+        continue;
+      }
+      if (typeof it.context !== 'string' || !/^[a-z0-9_.]{1,64}$/.test(it.context)) return { error: 'chart items need a context' };
+      clean.push({
+        ...base,
+        context: it.context,
+        groupBy: GROUPINGS.includes(it.groupBy) ? it.groupBy : undefined,
+        agg: AGGREGATIONS.includes(it.agg) ? it.agg : undefined,
+        type: ['line', 'area', 'stacked'].includes(it.type) ? it.type : undefined,
+        nodes: Array.isArray(it.nodes) ? it.nodes.map(String).slice(0, 100) : undefined,
+        dims: Array.isArray(it.dims) ? it.dims.map(String).slice(0, 50) : undefined,
+      });
+    }
+    return {
+      dashboard: { name, description: String(body?.description ?? existing?.description ?? '').slice(0, 300), items: clean },
+    };
+  }
+
+  api.get('/dashboards', (req, res) => res.json(db.listDashboards(String(req.query.room || ALL_NODES_ROOM))));
+
+  api.post('/dashboards', (req, res) => {
+    const roomId = String(req.body?.room_id || ALL_NODES_ROOM);
+    if (!rooms().some((r) => r.id === roomId)) return bad(res, 'room not found', 404);
+    const { dashboard, error } = validateDashboard(req.body);
+    if (error) return bad(res, error);
+    res.status(201).json(db.createDashboard({ ...dashboard, room_id: roomId }, core.now()));
+  });
+
+  api.get('/dashboards/:id', (req, res) => {
+    const d = db.getDashboard(req.params.id);
+    if (!d) return bad(res, 'dashboard not found', 404);
+    res.json(d);
+  });
+
+  api.put('/dashboards/:id', (req, res) => {
+    const existing = db.getDashboard(req.params.id);
+    if (!existing) return bad(res, 'dashboard not found', 404);
+    const { dashboard, error } = validateDashboard(req.body, existing);
+    if (error) return bad(res, error);
+    res.json(db.updateDashboard(existing.id, dashboard, core.now()));
+  });
+
+  api.delete('/dashboards/:id', (req, res) => {
+    if (!db.getDashboard(req.params.id)) return bad(res, 'dashboard not found', 404);
+    db.deleteDashboard(req.params.id);
+    res.status(204).end();
+  });
+
+  // ------------------------------------------------------------ containers & services
+
+  // Latest per-node inventories the agents reported (kept in memory).
+  function inventory(map, ids) {
+    const names = nodeNames();
+    return ids.filter((id) => map.has(id)).map((id) => ({
+      nodeId: id, hostname: names[id], online: core.nodeSummary(db.getNode(id))?.online ?? false, ...map.get(id),
+    }));
+  }
+
+  api.get('/containers', withScope((req, res, ids) => res.json(inventory(core.containers, ids))));
+  api.get('/services', withScope((req, res, ids) => res.json(inventory(core.services, ids))));
+
+  // ------------------------------------------------------------ collector jobs
+
+  api.get('/job-types', (req, res) => res.json(JOB_TYPES));
+
+  api.get('/jobs', withScope((req, res, ids) => {
+    const set = new Set(ids);
+    const names = nodeNames();
+    res.json(db.listJobs().filter((j) => set.has(j.node_id))
+      .map((j) => ({ ...publicJob(j, core.jobStatus.get(j.id)), hostname: names[j.node_id] })));
+  }));
+
+  api.post('/jobs', (req, res) => {
+    const { job, error } = validateJob(req.body);
+    if (error) return bad(res, error);
+    if (!db.getNode(job.node_id)) return bad(res, 'node not found', 404);
+    const row = db.createJob(job, core.now());
+    core.pushJobs(row.node_id);
+    res.status(201).json(publicJob(row));
+  });
+
+  api.patch('/jobs/:id', (req, res) => {
+    const existing = db.getJob(Number(req.params.id));
+    if (!existing) return bad(res, 'job not found', 404);
+    const { job, error } = validateJob(req.body, existing);
+    if (error) return bad(res, error);
+    const row = db.updateJob(existing.id, job, core.now());
+    core.pushJobs(row.node_id);
+    if (!row.enabled) core.clearJob(row);
+    res.json(publicJob(row, core.jobStatus.get(row.id)));
+  });
+
+  api.delete('/jobs/:id', (req, res) => {
+    const existing = db.getJob(Number(req.params.id));
+    if (!existing) return bad(res, 'job not found', 404);
+    db.deleteJob(existing.id);
+    core.pushJobs(existing.node_id);
+    core.clearJob(existing);
+    res.status(204).end();
   });
 
   api.use((req, res) => bad(res, 'not found', 404));

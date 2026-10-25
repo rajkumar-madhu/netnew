@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, qs } from '../api.js';
 import { formatterFor, plural } from '../format.js';
 import { shouldRefresh, useTime } from '../state/time.jsx';
+import AddToDashboard from './AddToDashboard.jsx';
 import { Dropdown, MenuItem, Modal } from './Bits.jsx';
 import Chart from './Chart.jsx';
 import Icon from './Icon.jsx';
@@ -26,18 +27,35 @@ function useVisible(ref) {
  * A Netdata-style chart card for one context: fetches /api/data for the given
  * scope (room and/or node IDs) and the global time window, with group-by,
  * aggregation and chart-type controls in its header.
+ *
+ * `settings` overrides the context's defaults (title, groupBy, agg, type) and
+ * `onSettingsChange` reports changes, which is how dashboards persist them.
+ * `actions` adds buttons to the header; `canAddToDashboard` shows the
+ * "Add to dashboard" button.
  */
-export default function NetChart({ meta, scope, height = 200 }) {
+export default function NetChart({
+  meta, scope, height = 200, settings = {}, onSettingsChange, actions, canAddToDashboard = true, className = '',
+}) {
   const time = useTime();
   const ref = useRef(null);
   const visible = useVisible(ref);
-  const [groupBy, setGroupBy] = useState(meta.groupBy);
-  const [agg, setAgg] = useState(meta.agg);
-  const [type, setType] = useState(meta.type);
+  const [groupBy, setGroupByState] = useState(settings.groupBy ?? meta.groupBy);
+  const [agg, setAggState] = useState(settings.agg ?? meta.agg);
+  const [type, setTypeState] = useState(settings.type ?? meta.type);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(false);
+  const [adding, setAdding] = useState(false);
   const inflight = useRef(false);
+
+  const change = (key, setter) => (value) => {
+    setter(value);
+    onSettingsChange?.({ [key]: value });
+  };
+  const setGroupBy = change('groupBy', setGroupByState);
+  const setAgg = change('agg', setAggState);
+  const setType = change('type', setTypeState);
+  const title = settings.title || meta.title;
 
   const points = expanded ? 900 : 600;
   const path = `/data${qs({
@@ -102,24 +120,36 @@ export default function NetChart({ meta, scope, height = 200 }) {
   );
 
   return (
-    <section className="panel net-chart" ref={ref} id={`chart-${meta.context}`}>
+    <section className={`panel net-chart ${className}`} ref={ref} id={`chart-${meta.context}`}>
       <header className="chart-head">
         <div className="chart-title">
-          <h3>{meta.title}</h3>
+          <h3>{title}</h3>
           <span className="muted small">{meta.context} · {meta.units}</span>
           {meta.help && <span className="help" title={meta.help}><Icon name="info" size={14} /></span>}
         </div>
-        <button type="button" className="icon-button" aria-label="Expand chart" onClick={() => setExpanded(true)}>
-          <Icon name="expand" size={15} />
-        </button>
+        <div className="chart-actions">
+          {actions}
+          {canAddToDashboard && (
+            <button type="button" className="icon-button" aria-label="Add to dashboard" title="Add to dashboard" onClick={() => setAdding(true)}>
+              <Icon name="dashboard" size={15} />
+            </button>
+          )}
+          <button type="button" className="icon-button" aria-label="Expand chart" title="Expand" onClick={() => setExpanded(true)}>
+            <Icon name="expand" size={15} />
+          </button>
+        </div>
       </header>
       {toolbar}
       {error && <p className="error small">{error.message}</p>}
       {result && result.ts.length === 0 && <div className="chart-empty muted" style={{ height }}>No data in this time range</div>}
       {result && result.ts.length > 0 && !expanded && chart(height)}
       {!result && !error && <div className="chart-empty" style={{ height }}><span className="spinner" /></div>}
+      {adding && (
+        <AddToDashboard roomId={scope.room} onClose={() => setAdding(false)}
+          item={{ kind: 'chart', context: meta.context, title: settings.title, groupBy, agg, type, nodes: scope.nodes ?? undefined, dims: meta.dims }} />
+      )}
       {expanded && (
-        <Modal title={meta.title} wide onClose={() => setExpanded(false)}>
+        <Modal title={title} wide onClose={() => setExpanded(false)}>
           {toolbar}
           {result && chart(Math.round(window.innerHeight * 0.55))}
           {meta.help && <p className="muted small">{meta.help}</p>}

@@ -47,8 +47,10 @@ fi
 
 echo "Installing NetNew agent from $URL ..."
 mkdir -p "$INSTALL_DIR" "$STATE_DIR"
-fetch "$URL/agent/index.js" "$INSTALL_DIR/index.js"
-fetch "$URL/agent/package.json" "$INSTALL_DIR/package.json"
+fetch "$URL/agent/manifest" "$INSTALL_DIR/.manifest"
+for f in $(cat "$INSTALL_DIR/.manifest"); do
+  fetch "$URL/agent/$f" "$INSTALL_DIR/$f"
+done
 (cd "$INSTALL_DIR" && npm install --omit=dev --no-audit --no-fund --loglevel=error)
 
 umask 077

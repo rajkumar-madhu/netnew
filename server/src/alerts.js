@@ -43,6 +43,24 @@ export function describeRules(offlineAfterSec) {
       description: `${window}s average; warning at ${warn}%, critical at ${crit}%. Clears ${HYSTERESIS} points below the threshold.`,
     })),
     {
+      id: 'check:<job>',
+      name: 'Service check failed',
+      window: null,
+      warn: null,
+      crit: null,
+      units: '',
+      description: 'Critical after 2 consecutive failed runs of an HTTP, TCP, ping or application collector job. Clears on the next success.',
+    },
+    {
+      id: 'systemd_failed',
+      name: 'Failed systemd units',
+      window: null,
+      warn: null,
+      crit: null,
+      units: '',
+      description: 'Warning while any systemd service unit on the node is in the failed state.',
+    },
+    {
       ...OFFLINE_RULE,
       window: offlineAfterSec,
       warn: null,
@@ -107,6 +125,11 @@ export function createAlertEngine(db, onChange) {
     setOnline(nodeId, online, ts) {
       transition(nodeId, OFFLINE_RULE, online ? 'clear' : 'critical', null,
         online ? '' : 'Node stopped sending metrics', ts);
+    },
+
+    // Alerts whose state is computed elsewhere (service checks, systemd units).
+    setState(nodeId, ruleId, severity, value, message, ts) {
+      transition(nodeId, { id: ruleId }, severity, value, message, ts);
     },
 
     forgetNode(nodeId) {

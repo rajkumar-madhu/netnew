@@ -6,7 +6,10 @@
 //   type:    line | area | stacked
 //   agg:     how members are combined when grouped (avg | sum | min | max)
 //   groupBy: dimension | node | instance
-export const SECTIONS = ['System', 'CPUs', 'Memory', 'Disks', 'Network', 'Processes', 'Sensors'];
+export const SECTIONS = [
+  'System', 'CPUs', 'Memory', 'Disks', 'Network', 'Processes', 'Sensors',
+  'Containers', 'Kubernetes', 'Service checks', 'Systemd', 'Nginx', 'Redis', 'PostgreSQL', 'MySQL',
+];
 
 export const CONTEXTS = {
   'system.cpu': {
@@ -74,6 +77,93 @@ export const CONTEXTS = {
   },
   'sensors.temperature': {
     section: 'Sensors', title: 'CPU temperature', units: '°C', type: 'line', agg: 'max', groupBy: 'dimension',
+  },
+
+  // Containers (Docker Engine API) and Kubernetes pods (cgroup v2 + API server).
+  'docker.containers': {
+    section: 'Containers', title: 'Containers by state', units: 'containers', type: 'stacked', agg: 'sum', groupBy: 'dimension',
+  },
+  'container.cpu': {
+    section: 'Containers', title: 'Container CPU usage', units: '%', type: 'line', agg: 'sum', groupBy: 'instance',
+    help: 'CPU time used, as a percentage of one core (can exceed 100% on multi-core hosts).',
+  },
+  'container.mem': {
+    section: 'Containers', title: 'Container memory usage', units: 'bytes', type: 'line', agg: 'sum', groupBy: 'instance',
+  },
+  'container.net': {
+    section: 'Containers', title: 'Container network traffic', units: 'bytes/s', type: 'line', agg: 'sum', groupBy: 'instance',
+  },
+  'container.io': {
+    section: 'Containers', title: 'Container disk I/O', units: 'bytes/s', type: 'line', agg: 'sum', groupBy: 'instance',
+  },
+  'k8s.pods': {
+    section: 'Kubernetes', title: 'Pods by phase', units: 'pods', type: 'stacked', agg: 'sum', groupBy: 'dimension',
+  },
+  'k8s.pod.cpu': {
+    section: 'Kubernetes', title: 'Pod CPU usage', units: '%', type: 'line', agg: 'sum', groupBy: 'instance',
+  },
+  'k8s.pod.mem': {
+    section: 'Kubernetes', title: 'Pod memory usage', units: 'bytes', type: 'line', agg: 'sum', groupBy: 'instance',
+  },
+  'k8s.pod.io': {
+    section: 'Kubernetes', title: 'Pod disk I/O', units: 'bytes/s', type: 'line', agg: 'sum', groupBy: 'instance',
+  },
+
+  // Service checks and application collectors (configured as jobs).
+  'check.up': {
+    section: 'Service checks', title: 'Check status', units: 'up', type: 'line', agg: 'min', groupBy: 'instance',
+    help: '1 when the check succeeds, 0 when it fails.',
+  },
+  'check.latency': {
+    section: 'Service checks', title: 'Check response time', units: 'ms', type: 'line', agg: 'avg', groupBy: 'instance',
+  },
+  'ping.loss': {
+    section: 'Service checks', title: 'Ping packet loss', units: '%', type: 'line', agg: 'max', groupBy: 'instance',
+  },
+  'systemd.units': {
+    section: 'Systemd', title: 'Systemd service units by state', units: 'units', type: 'stacked', agg: 'sum', groupBy: 'dimension',
+  },
+  'nginx.connections': {
+    section: 'Nginx', title: 'Nginx connections', units: 'connections', type: 'line', agg: 'sum', groupBy: 'dimension',
+  },
+  'nginx.requests': {
+    section: 'Nginx', title: 'Nginx requests', units: 'requests/s', type: 'area', agg: 'sum', groupBy: 'instance',
+  },
+  'redis.clients': {
+    section: 'Redis', title: 'Redis clients', units: 'clients', type: 'line', agg: 'sum', groupBy: 'dimension',
+  },
+  'redis.ops': {
+    section: 'Redis', title: 'Redis operations', units: 'operations/s', type: 'area', agg: 'sum', groupBy: 'instance',
+  },
+  'redis.memory': {
+    section: 'Redis', title: 'Redis memory', units: 'bytes', type: 'area', agg: 'sum', groupBy: 'instance',
+  },
+  'redis.hits': {
+    section: 'Redis', title: 'Redis keyspace lookups', units: 'lookups/s', type: 'stacked', agg: 'sum', groupBy: 'dimension',
+  },
+  'redis.keys': {
+    section: 'Redis', title: 'Redis keys', units: 'keys', type: 'line', agg: 'sum', groupBy: 'instance',
+  },
+  'postgres.connections': {
+    section: 'PostgreSQL', title: 'PostgreSQL connections', units: 'connections', type: 'line', agg: 'sum', groupBy: 'instance',
+  },
+  'postgres.transactions': {
+    section: 'PostgreSQL', title: 'PostgreSQL transactions', units: 'transactions/s', type: 'line', agg: 'sum', groupBy: 'dimension',
+  },
+  'postgres.cache': {
+    section: 'PostgreSQL', title: 'PostgreSQL cache hit ratio', units: '%', type: 'line', agg: 'avg', groupBy: 'instance',
+  },
+  'postgres.size': {
+    section: 'PostgreSQL', title: 'PostgreSQL database size', units: 'bytes', type: 'area', agg: 'sum', groupBy: 'instance',
+  },
+  'mysql.connections': {
+    section: 'MySQL', title: 'MySQL connections', units: 'connections', type: 'line', agg: 'sum', groupBy: 'dimension',
+  },
+  'mysql.queries': {
+    section: 'MySQL', title: 'MySQL queries', units: 'queries/s', type: 'line', agg: 'sum', groupBy: 'dimension',
+  },
+  'mysql.net': {
+    section: 'MySQL', title: 'MySQL network traffic', units: 'bytes/s', type: 'area', agg: 'sum', groupBy: 'dimension',
   },
 };
 

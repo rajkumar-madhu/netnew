@@ -1,6 +1,6 @@
 {
   "name": "netnew",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Real-time infrastructure monitoring: lightweight agents, a Node.js server and a React dashboard.",
   "workspaces": [

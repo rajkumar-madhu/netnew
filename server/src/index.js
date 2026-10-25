@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -9,9 +9,11 @@ import { createAnomalyDetector } from './anomalies.js';
 import { createApi } from './api.js';
 import { config } from './config.js';
 import { METRICS, openDb } from './db.js';
+import { agentJob } from './jobs.js';
+import { createLogStore } from './logstore.js';
 import { createNotifier } from './notify.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const WEB_DIST = fileURLToPath(new URL('../../web/dist', import.meta.url));
 const AGENT_DIR = fileURLToPath(new URL('../../agent', import.meta.url));
 const INSTALL_SCRIPT = fileURLToPath(new URL('./install.sh', import.meta.url));
@@ -25,6 +27,10 @@ const agents = new Map(); // nodeId -> agent socket
 const lastSeen = new Map(); // nodeId -> unix seconds of the last sample received
 const latest = new Map(); // nodeId -> most recent summary sample
 const processes = new Map(); // nodeId -> latest process snapshot (memory only)
+const containers = new Map(); // nodeId -> latest Docker/Kubernetes inventory
+const services = new Map(); // nodeId -> latest systemd service units
+const jobStatus = new Map(); // job id -> last run result reported by the agent
+const logs = createLogStore(db.raw, db.transaction);
 
 for (const node of db.listNodes()) {
   const m = db.latestMetric(node.id);
@@ -41,8 +47,17 @@ function addEvent(nodeId, type, severity, message) {
   broadcast({ type: 'event', event: { ...event, hostname: nodeId ? db.getNode(nodeId)?.hostname : null } });
 }
 
+function alertName(rule) {
+  if (rule.startsWith('check:')) {
+    const job = db.getJob(Number(rule.slice(6)));
+    return `Check failed: ${job?.name ?? 'deleted job'}`;
+  }
+  if (rule === 'systemd_failed') return 'Failed systemd units';
+  return RULE_NAMES[rule] ?? rule;
+}
+
 function decorateAlert(a) {
-  return { ...a, name: RULE_NAMES[a.rule] ?? a.rule, hostname: a.hostname ?? db.getNode(a.node_id)?.hostname };
+  return { ...a, name: alertName(a.rule), hostname: a.hostname ?? db.getNode(a.node_id)?.hostname };
 }
 
 const notifier = createNotifier({
@@ -107,6 +122,9 @@ function broadcastNode(id) {
 
 function removeNode(node) {
   db.deleteNode(node.id);
+  logs.deleteNode(node.id);
+  containers.delete(node.id);
+  services.delete(node.id);
   alerts.forgetNode(node.id);
   anomalies.forgetNode(node.id);
   latest.delete(node.id);
@@ -179,7 +197,6 @@ function ingest(nodeId, rawSamples) {
 
 function sanitizeNode(n) {
   const str = (v) => (v == null ? null : String(v).slice(0, 200));
-  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
   if (typeof n?.id !== 'string' || !/^[\w-]{8,64}$/.test(n.id)) return null;
   return {
     id: n.id,
@@ -204,7 +221,6 @@ function sanitizeNode(n) {
 
 function sanitizeProcesses(msg) {
   const str = (v, max = 100) => (v == null ? '' : String(v).slice(0, max));
-  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
   const counts = msg.counts ?? {};
   return {
     ts: num(msg.ts) ?? now(),
@@ -221,6 +237,77 @@ function sanitizeProcesses(msg) {
       command: str(p.command, 300),
     })),
   };
+}
+
+const str = (v, max) => (v == null ? '' : String(v).slice(0, max));
+const num = (v) => (v != null && Number.isFinite(Number(v)) ? Number(v) : null);
+
+function ingestLogs(nodeId, entries) {
+  const now = Date.now();
+  const clean = entries.slice(0, 5000).map((e) => {
+    const ts = Number(e?.ts);
+    const priority = Math.trunc(Number(e?.priority));
+    return {
+      ts: Number.isFinite(ts) && ts > now - 7 * 86400_000 && ts < now + 60_000 ? Math.trunc(ts) : now,
+      priority: priority >= 0 && priority <= 7 ? priority : 6,
+      source: str(e?.source, 20) || 'file',
+      service: str(e?.service, 100) || 'unknown',
+      message: str(e?.message, 8000),
+    };
+  }).filter((e) => e.message);
+  if (!clean.length) return;
+  logs.insert(nodeId, clean);
+  broadcast({ type: 'logs', nodeId, count: clean.length });
+}
+
+// Inventories are kept as reported, with every value coerced to a string or number.
+function sanitizeInventory(value, depth = 0) {
+  if (depth > 4) return null;
+  if (Array.isArray(value)) return value.slice(0, 500).map((v) => sanitizeInventory(v, depth + 1));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).slice(0, 60)
+      .map(([k, v]) => [str(k, 64), sanitizeInventory(v, depth + 1)]));
+  }
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'boolean') return value;
+  return value == null ? null : str(value, 500);
+}
+
+function handleJobStatus(nodeId, list) {
+  const t = now();
+  for (const s of (Array.isArray(list) ? list : []).slice(0, 500)) {
+    const job = db.getJob(Number(s?.id));
+    if (!job || job.node_id !== nodeId) continue;
+    const status = {
+      ok: Boolean(s.ok), error: str(s.error, 300) || null, latency: num(s.latency),
+      failures: num(s.failures) ?? 0, lastRun: num(s.lastRun) ?? t,
+    };
+    jobStatus.set(job.id, status);
+    const failing = !status.ok && status.failures >= 2;
+    alerts.setState(nodeId, `check:${job.id}`, failing ? 'critical' : 'clear', status.latency,
+      failing ? `${job.name} (${job.type}) failed ${status.failures} times: ${status.error ?? 'unknown error'}` : '', t);
+  }
+}
+
+function handleServices(nodeId, msg) {
+  const list = (Array.isArray(msg.list) ? msg.list : []).slice(0, 2000).map((u) => ({
+    unit: str(u?.unit, 200), load: str(u?.load, 20), active: str(u?.active, 20), sub: str(u?.sub, 30), description: str(u?.description, 200),
+  }));
+  services.set(nodeId, { ts: now(), available: msg.available !== false, error: str(msg.error, 300) || null, list });
+  const failed = list.filter((u) => u.active === 'failed');
+  alerts.setState(nodeId, 'systemd_failed', failed.length ? 'warning' : 'clear', failed.length,
+    failed.length ? `${failed.length} failed: ${failed.slice(0, 5).map((u) => u.unit).join(', ')}${failed.length > 5 ? '…' : ''}` : '', now());
+}
+
+// Sends a node's enabled collector jobs to its agent (on connect and on change).
+function pushJobs(nodeId) {
+  const ws = agents.get(nodeId);
+  if (ws?.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'config', jobs: db.jobsForNode(nodeId).map(agentJob) }));
+}
+
+function clearJob(job) {
+  jobStatus.delete(job.id);
+  alerts.setState(job.node_id, `check:${job.id}`, 'clear', null, '', now());
 }
 
 function handleAgent(ws) {
@@ -245,6 +332,7 @@ function handleAgent(ws) {
         console.log(`agent connected: ${node.hostname} (${nodeId})`);
         if (isNew) addEvent(nodeId, 'node.created', 'info', `New node ${node.hostname} joined the space`);
         addEvent(nodeId, 'node.connected', 'info', `Agent connected (${node.agentVersion ?? 'unknown version'})`);
+        pushJobs(nodeId);
       }
       broadcastNode(nodeId);
     } else if (!nodeId) {
@@ -255,6 +343,14 @@ function handleAgent(ws) {
       ingest(nodeId, msg.samples.slice(0, 5000));
     } else if (msg.type === 'processes') {
       processes.set(nodeId, sanitizeProcesses(msg));
+    } else if (msg.type === 'logs' && Array.isArray(msg.entries)) {
+      ingestLogs(nodeId, msg.entries);
+    } else if (msg.type === 'containers') {
+      containers.set(nodeId, { ts: now(), docker: sanitizeInventory(msg.docker), k8s: sanitizeInventory(msg.k8s) });
+    } else if (msg.type === 'jobs') {
+      handleJobStatus(nodeId, msg.list);
+    } else if (msg.type === 'services') {
+      handleServices(nodeId, msg);
     }
   });
 
@@ -294,6 +390,12 @@ const core = {
   startedAt,
   agents,
   processes,
+  containers,
+  services,
+  jobStatus,
+  logs,
+  pushJobs,
+  clearJob,
   nodeSummary,
   decorateAlert,
   broadcast,
@@ -312,8 +414,12 @@ app.get('/install.sh', (req, res) => {
     .replaceAll('__NETNEW_URL__', `${req.protocol}://${req.get('host')}`);
   res.type('text/x-shellscript').send(script);
 });
+// The agent is a handful of flat .js files plus package.json; the manifest
+// lets installers fetch whatever the current version consists of.
+const agentFiles = () => readdirSync(AGENT_DIR).filter((f) => /^[a-z]+\.js$/.test(f) || f === 'package.json').sort();
+app.get('/agent/manifest', (req, res) => res.type('text').send(`${agentFiles().join('\n')}\n`));
 app.get('/agent/:file', (req, res) => {
-  if (!['index.js', 'package.json'].includes(req.params.file)) return res.sendStatus(404);
+  if (!agentFiles().includes(req.params.file)) return res.sendStatus(404);
   res.sendFile(req.params.file, { root: AGENT_DIR });
 });
 
@@ -380,6 +486,7 @@ setInterval(() => {
 setInterval(() => {
   const t = now();
   db.prune(t - config.retentionHours * 3600, t - 7 * 86400);
+  logs.prune((t - config.logRetentionHours * 3600) * 1000, config.logMaxRows);
 }, 10 * 60_000).unref();
 
 // Per-minute rollups for long-range charts.
