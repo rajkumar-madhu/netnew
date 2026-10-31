@@ -3,13 +3,13 @@ import { Link, NavLink, useParams } from 'react-router-dom';
 import { api, usePolling } from '../../lib/api.js';
 import { CopyButton, Empty, Loading, Modal } from '../../components/ui/Bits.jsx';
 import Icon from '../../components/ui/Icon.jsx';
-import { useIntegrations } from '../../components/IntegrationsModal.jsx';
 import { JobDialog, JobsTable, NoJobs, useJobNodes } from '../../components/Jobs.jsx';
 import GroupDialog from '../../components/GroupDialog.jsx';
-import { PageHeader } from '../../components/layout/GroupLayout.jsx';
+import { PageHeader } from '../../components/layout/AppLayout.jsx';
 import { ago, dateTime } from '../../lib/format.js';
 import { useAuth } from '../../state/auth.jsx';
 import { useWorkspace } from '../../state/workspace.jsx';
+import { withScope } from '../../lib/scope.js';
 
 const SECTIONS = [
   { id: 'general', label: 'General' },
@@ -27,7 +27,6 @@ function ReadOnlyNote() {
 function General() {
   const { workspace, nodes, loadWorkspace } = useWorkspace();
   const { isAdmin } = useAuth();
-  const integrations = useIntegrations();
   const [name, setName] = useState(null);
   const [token, setToken] = useState(null);
   const [message, setMessage] = useState(null);
@@ -85,7 +84,7 @@ function General() {
           </button>
         ))}
         <p>
-          <button type="button" className="primary" onClick={() => integrations.show('deploy.servers')}><Icon name="plug" size={15} /> Connect nodes</button>
+          <Link className="button primary" to="/app/connect"><Icon name="plug" size={15} /> Connect a server</Link>
         </p>
       </section>
     </>
@@ -261,7 +260,7 @@ function Groups() {
           <tbody>
             {groups.map((g) => (
               <tr key={g.id}>
-                <td><Link to={`/app/groups/${g.id}/home`}><strong>{g.name}</strong></Link></td>
+                <td><Link to={withScope('/app/overview', g.id)}><strong>{g.name}</strong></Link></td>
                 <td className="muted wrap">{g.description}</td>
                 <td className="num">{g.nodeIds.length}{g.builtin ? ` of ${nodes?.length ?? 0}` : ''}</td>
                 <td className="actions">
@@ -382,7 +381,7 @@ function Notifications() {
   return (
     <>
       <div className="toolbar">
-        <p className="muted">Alerts are sent when raised, when they change severity and when they clear. Failed deliveries are logged on the Events tab.</p>
+        <p className="muted">Alerts are sent when raised, when they change severity and when they clear. Failed deliveries are logged on the Activity page.</p>
         {isAdmin && !editing && <button type="button" className="primary push" onClick={() => setEditing('new')}><Icon name="plus" size={15} /> Add channel</button>}
       </div>
       {editing && (
@@ -428,20 +427,21 @@ export default function Settings() {
   const { isAdmin } = useAuth();
   return (
     <>
-      <PageHeader title="Workspace settings" tabs={(
-        <nav className="tabs" aria-label="Settings sections">
+      <PageHeader title="Settings" description="Your workspace, account, team, groups, collectors and alert notifications." />
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings sections">
           {SECTIONS.filter((s) => !s.admin || isAdmin).map((s) => (
-            <NavLink key={s.id} to={`/app/settings/${s.id}`} className={() => `tab ${section === s.id ? 'active' : ''}`}>{s.label}</NavLink>
+            <NavLink key={s.id} to={`/app/settings/${s.id}`} className={() => `settings-link ${section === s.id ? 'active' : ''}`}>{s.label}</NavLink>
           ))}
         </nav>
-      )} />
-      <div className="page settings">
-        {section === 'general' && <General />}
-        {section === 'account' && <Account />}
-        {section === 'users' && <Users />}
-        {section === 'groups' && <Groups />}
-        {section === 'collectors' && <Collectors />}
-        {section === 'notifications' && <Notifications />}
+        <div className="settings">
+          {section === 'general' && <General />}
+          {section === 'account' && <Account />}
+          {section === 'users' && <Users />}
+          {section === 'groups' && <Groups />}
+          {section === 'collectors' && <Collectors />}
+          {section === 'notifications' && <Notifications />}
+        </div>
       </div>
     </>
   );

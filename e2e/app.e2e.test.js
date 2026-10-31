@@ -95,41 +95,71 @@ describe('NetNew end to end', { timeout: 180_000 }, () => {
     await page.getByLabel('Password').fill(ADMIN.password);
     await shot('02-setup');
     await page.getByRole('button', { name: 'Create workspace' }).click();
-    await page.waitForURL(/\/app\/groups\/all\/home/);
-    // Setup lands on the "connect your servers" instructions.
-    await page.getByRole('dialog', { name: 'Integrations' }).waitFor();
+    // Setup lands on the "connect a server" page.
+    await page.waitForURL(/\/app\/connect\?welcome=1/);
+    await page.getByRole('heading', { name: 'Connect a server', level: 1 }).waitFor();
   });
 
   it('fills the real agent token into the install command', async () => {
-    await page.locator('.int-card', { hasText: 'Linux' }).first().click();
+    await page.getByRole('radio', { name: 'Docker', exact: true }).click();
+    await page.getByRole('radio', { name: 'Linux', exact: true }).click();
     await page.getByRole('button', { name: 'Fill in my agent token' }).click();
     await page.locator('.code-block pre', { hasText: server.core.config.agentToken }).first().waitFor();
-    await shot('03-install-command');
-    await page.keyboard.press('Escape');
   });
 
-  it('shows the connected node with live charts', async () => {
-    await page.locator('.group-link', { hasText: 'All nodes' }).locator('.count', { hasText: '1' }).waitFor({ timeout: 20_000 });
-    await page.getByRole('link', { name: 'Nodes', exact: true }).click();
-    await page.locator('.nodes-table').getByRole('link', { name: 'e2e-node' }).click();
+  it('sees the agent arrive and opens its node page', async () => {
+    const arrived = page.locator('.connected-row', { hasText: 'e2e-node' });
+    await arrived.waitFor({ timeout: 20_000 });
+    await shot('03-connect');
+    await arrived.getByRole('link', { name: 'Open e2e-node' }).click();
     await page.waitForURL(/\/app\/nodes\/.+/);
+    await page.getByRole('heading', { name: 'e2e-node', level: 1 }).waitFor();
     await page.locator('.net-chart canvas').first().waitFor({ timeout: 20_000 });
     assert.ok(await page.locator('.metrics-section h2', { hasText: 'System' }).count());
     await shot('04-node-metrics');
   });
 
-  it('creates a group with the node', async () => {
-    await page.getByRole('button', { name: 'Create group' }).click();
+  it('shows the fleet on the overview', async () => {
+    await page.locator('.sidebar').getByRole('link', { name: 'Overview' }).click();
+    await page.locator('.health-banner').waitFor();
+    await page.locator('.fleet-table').getByRole('link', { name: 'e2e-node' }).waitFor();
+    await page.locator('.net-chart canvas').first().waitFor({ timeout: 20_000 });
+    await shot('05-overview');
+  });
+
+  it('jumps to a node with the command palette', async () => {
+    await page.keyboard.press('Control+k');
+    const search = page.getByRole('combobox', { name: 'Search pages, nodes and groups' });
+    await search.fill('e2e-n');
+    await page.getByRole('option', { name: /e2e-node/ }).waitFor();
+    await search.press('Enter');
+    await page.waitForURL(/\/app\/nodes\/.+/);
+  });
+
+  it('creates a group and scopes the app to it', async () => {
+    await page.getByRole('button', { name: 'Choose group' }).click();
+    await page.getByRole('button', { name: 'New group' }).click();
     await page.getByPlaceholder('e.g. Production').fill('Web tier');
     await page.locator('.check-row', { hasText: 'e2e-node' }).locator('input').check();
     await page.getByRole('dialog').getByRole('button', { name: 'Create group' }).click();
-    await page.locator('.group-link', { hasText: 'Web tier' }).click();
-    await page.getByRole('heading', { name: 'Web tier' }).waitFor();
-    assert.match(await page.locator('.page-title').textContent(), /1 of 1 nodes live/);
+    await page.waitForURL(/\/app\/nodes\?group=/);
+    await page.locator('.page-kicker', { hasText: 'Web tier · 1 of 1 nodes live' }).waitFor();
+    assert.match(await page.locator('.scope-name').textContent(), /Web tier/);
+  });
+
+  it('filters the metrics explorer', async () => {
+    await page.locator('.sidebar').getByRole('link', { name: 'Metrics' }).click();
+    await page.getByRole('tab', { name: /^Memory/ }).click();
+    await page.locator('.net-chart', { hasText: 'System RAM' }).locator('canvas').waitFor({ timeout: 15_000 });
+    assert.equal(await page.locator('.net-chart', { hasText: 'Total CPU utilization' }).count(), 0);
+    await page.getByRole('tab', { name: /^All/ }).click();
+    await page.getByPlaceholder(/Find a chart/).fill('network');
+    await page.locator('.net-chart', { hasText: 'Network traffic' }).waitFor();
+    await shot('06-metrics');
   });
 
   it('builds a dashboard', async () => {
-    await page.getByRole('link', { name: 'Dashboards' }).click();
+    await page.locator('.sidebar').getByRole('link', { name: 'Dashboards' }).click();
     await page.getByRole('button', { name: 'New dashboard' }).click();
     await page.locator('#new-dash input').first().fill('Checkout');
     await page.getByRole('button', { name: 'Create and add charts' }).click();
@@ -138,24 +168,24 @@ describe('NetNew end to end', { timeout: 180_000 }, () => {
     await page.locator('.modal-foot').getByRole('button', { name: 'Add chart' }).click();
     await page.getByRole('button', { name: 'Save dashboard' }).click();
     await page.locator('.dash-item canvas').first().waitFor({ timeout: 15_000 });
-    await shot('05-dashboard');
+    await shot('07-dashboard');
   });
 
   it('finds the agent\'s log lines', async () => {
-    await page.getByRole('link', { name: 'Logs' }).click();
+    await page.locator('.sidebar').getByRole('link', { name: 'Logs' }).click();
     await page.getByPlaceholder(/Search log messages/).fill('gateway timeout');
     await page.locator('.log-message', { hasText: LOG_LINE }).first().waitFor({ timeout: 20_000 });
-    await shot('06-logs');
+    await shot('08-logs');
   });
 
   it('adds an HTTP check that turns OK', async () => {
-    await page.getByRole('link', { name: 'Services' }).click();
+    await page.locator('.sidebar').getByRole('link', { name: 'Services' }).click();
     await page.getByRole('button', { name: 'Add check or collector' }).first().click();
     await page.getByPlaceholder('e.g. checkout-api').fill('checkout-health');
     await page.getByPlaceholder('https://example.com/health').fill(`http://127.0.0.1:${target.address().port}/health`);
     await page.getByRole('button', { name: 'Add job' }).click();
     await page.locator('tr', { hasText: 'checkout-health' }).locator('.job-state.ok').waitFor({ timeout: 20_000 });
-    await shot('07-services');
+    await shot('09-services');
   });
 
   it('invites a viewer who gets read-only access', async () => {
@@ -168,7 +198,7 @@ describe('NetNew end to end', { timeout: 180_000 }, () => {
     await dialog.getByRole('button', { name: 'Add user' }).click();
     await page.locator('td', { hasText: VIEWER.email }).waitFor();
 
-    await page.locator('.user-menu .dropdown-trigger').click();
+    await page.getByRole('button', { name: 'Account menu' }).click();
     await page.getByRole('button', { name: 'Sign out' }).click();
     await page.waitForURL(/\/login/);
 
@@ -176,12 +206,15 @@ describe('NetNew end to end', { timeout: 180_000 }, () => {
     await page.getByLabel('Password').fill(VIEWER.password);
     await page.getByRole('button', { name: 'Sign in' }).click();
     await page.waitForURL(/\/app\//);
-    await page.goto(`${base}/app/groups/all/dashboards`);
-    await page.locator('.dash-card', { hasText: 'Checkout' }).waitFor().catch(() => {});
+    await page.locator('.sidebar').getByRole('link', { name: 'Dashboards' }).click();
+    await page.getByRole('button', { name: 'Choose group' }).click();
+    await page.getByRole('menuitemradio', { name: /Web tier/ }).click();
+    await page.locator('.dash-card', { hasText: 'Checkout' }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'New dashboard' }).count(), 0);
+    await shot('10-viewer');
     await page.goto(`${base}/app/settings/general`);
+    await page.locator('.settings-nav').waitFor();
     assert.equal(await page.getByRole('link', { name: 'Users', exact: true }).count(), 0);
-    await shot('08-viewer');
   });
 
   it('had no browser errors', () => {

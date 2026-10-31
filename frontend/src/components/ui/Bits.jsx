@@ -26,6 +26,28 @@ export function Meter({ label, value, detail, compact, neutral }) {
   );
 }
 
+// A circular gauge for a percentage, coloured by how full it is.
+export function Ring({ value, label, size = 76 }) {
+  const r = 30;
+  const c = 2 * Math.PI * r;
+  const v = value == null ? null : Math.min(100, Math.max(0, value));
+  const level = v == null ? 'none' : v >= 95 ? 'crit' : v >= 80 ? 'warn' : 'ok';
+  return (
+    <div className={`ring ${level}`} role="img" aria-label={`${label}: ${v == null ? 'no data' : pct(v)}`}>
+      <svg viewBox="0 0 76 76" width={size} height={size} aria-hidden="true">
+        <circle cx="38" cy="38" r={r} className="ring-track" />
+        {v != null && (
+          <circle cx="38" cy="38" r={r} className="ring-fill" strokeDasharray={`${(v / 100) * c} ${c}`} transform="rotate(-90 38 38)" />
+        )}
+      </svg>
+      <div className="ring-text">
+        <strong>{v == null ? '–' : `${Math.round(v)}%`}</strong>
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
+
 // A table cell meter: value text plus a thin bar.
 export function CellMeter({ value, text }) {
   return (
@@ -76,8 +98,9 @@ export function SearchInput({ value, onChange, placeholder = 'Search' }) {
   );
 }
 
-// Small dropdown menu used by chart toolbars and the time picker.
-export function Dropdown({ label, children, align = 'left', className = '' }) {
+// Small dropdown menu. `keepOpen` keeps it open while its contents are used
+// (for checkbox lists); `ariaLabel` names a trigger that has no text.
+export function Dropdown({ label, children, align = 'left', className = '', keepOpen = false, ariaLabel, chevron = true }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -95,11 +118,11 @@ export function Dropdown({ label, children, align = 'left', className = '' }) {
 
   return (
     <div className={`dropdown ${className}`} ref={ref}>
-      <button type="button" className="dropdown-trigger" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        {label} <Icon name="chevron" size={14} />
+      <button type="button" className="dropdown-trigger" aria-expanded={open} aria-label={ariaLabel} onClick={() => setOpen((o) => !o)}>
+        {label} {chevron && <Icon name="chevron" size={14} />}
       </button>
       {open && (
-        <div className={`dropdown-menu ${align}`} role="menu" onClick={() => setOpen(false)}>
+        <div className={`dropdown-menu ${align}`} role="menu" onClick={keepOpen ? undefined : () => setOpen(false)}>
           {children}
         </div>
       )}

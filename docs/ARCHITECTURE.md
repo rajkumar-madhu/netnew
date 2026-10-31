@@ -78,11 +78,12 @@ The server sends `config` with the node's collector jobs on connect and whenever
 | `app/App.jsx` | Routes: `/` landing, `/login`, `/setup`, and the signed-in app under `/app`. |
 | `pages/marketing` | Public landing page. |
 | `pages/auth` | Sign-in and first-run setup. |
-| `pages/app` | The app's views: Home, Nodes, Metrics, Dashboards, Logs, Containers, Services, Processes, Events, Alerts, Anomalies, node page, Settings. |
-| `components/layout` | App shell (icon bar, group sidebar, user menu), group layout and tabs, time picker. |
-| `components/charts` | uPlot chart, the chart card with group-by/aggregation controls, and the sectioned metrics board. |
+| `pages/app` | The app's views: Overview, Nodes, Metrics, Dashboards, Logs, Containers, Services, Processes, Alerts, Anomalies, Activity, the node page, Connect a server, Settings. |
+| `components/layout` | App frame: sectioned navigation sidebar, top bar with the group switcher, ⌘K command palette, time range and user menu; `nav.js` lists the pages. |
+| `components/charts` | uPlot chart, the chart card (group-by, aggregation and chart type in its options menu), and the metrics explorer (category filter, chart search, node filter). |
 | `components/ui` | Shared UI primitives and icons. |
-| `components/*` | Feature components: integrations window, group dialog, collector jobs, add-to-dashboard, process table. |
+| `components/connect` | Install instructions per platform and guides for logs and containers, used by the Connect a server page. |
+| `components/*` | Feature components: group dialog, collector jobs, add-to-dashboard, process table. |
 | `state/` | React contexts: auth (session and role), workspace (groups, nodes, alerts kept live), time window, theme. |
-| `lib/` | API client and live WebSocket, formatting. |
+| `lib/` | API client and live WebSocket, formatting, and `scope.js`: the group every page is scoped to, kept in the URL as `?group=<id>`. |
 | `styles/` | App and landing page styles, with light and dark themes. |

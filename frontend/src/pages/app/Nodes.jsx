@@ -3,7 +3,6 @@ import { Link, useOutletContext } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { CellMeter, Empty, SearchInput, SortTh, sortBy, StatusDot } from '../../components/ui/Bits.jsx';
 import Icon from '../../components/ui/Icon.jsx';
-import { useIntegrations } from '../../components/IntegrationsModal.jsx';
 import GroupDialog from '../../components/GroupDialog.jsx';
 import { ago, duration, memPct, nowSec, num, rate } from '../../lib/format.js';
 import { useWorkspace } from '../../state/workspace.jsx';
@@ -25,7 +24,6 @@ const GETTERS = {
 export default function Nodes() {
   const { group, nodes } = useOutletContext();
   const { loadGroups } = useWorkspace();
-  const integrations = useIntegrations();
   const { isAdmin } = useAuth();
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
@@ -80,7 +78,7 @@ export default function Nodes() {
             </>
           )}
           {isAdmin && !group.builtin && <button type="button" className="ghost" onClick={() => setDialog('edit')}><Icon name="edit" size={15} /> Manage group</button>}
-          <button type="button" className="primary" onClick={() => integrations.show('deploy.servers')}><Icon name="plug" size={15} /> Connect nodes</button>
+          <Link className="button primary" to="/app/connect"><Icon name="plug" size={15} /> Connect a server</Link>
         </div>
       </div>
 

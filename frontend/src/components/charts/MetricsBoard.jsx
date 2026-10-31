@@ -1,53 +1,49 @@
 import { useEffect, useMemo, useState } from 'react';
 import { qs, usePolling } from '../../lib/api.js';
-import { bytes, memPct, pct, rate } from '../../lib/format.js';
 import { useTime } from '../../state/time.jsx';
-import { Empty, Loading, SearchInput, Stat, StatusDot } from '../ui/Bits.jsx';
+import { Dropdown, Empty, Loading, SearchInput, StatusDot } from '../ui/Bits.jsx';
+import Icon from '../ui/Icon.jsx';
 import MetricChart from './MetricChart.jsx';
 
-const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-
-// Live summary strip above the charts, from each node's latest sample.
-function SummaryStrip({ nodes }) {
-  const live = nodes.filter((n) => n.online && n.latest);
-  const sum = (fn) => live.reduce((a, n) => a + (fn(n.latest) ?? 0), 0);
-  const avg = (fn) => (live.length ? sum(fn) / live.length : null);
+function NodeFilter({ nodes, selected, setSelected }) {
+  const [query, setQuery] = useState('');
+  const toggle = (id) => setSelected((cur) => {
+    const next = new Set(cur ?? nodes.map((n) => n.id));
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next.size === nodes.length || next.size === 0 ? null : next;
+  });
   return (
-    <div className="stats">
-      <Stat label="CPU" value={pct(avg((m) => m.cpu))} sub={`avg of ${live.length} live nodes`} />
-      <Stat label="RAM used" value={pct(avg(memPct))} sub={`${bytes(sum((m) => m.mem_used))} of ${bytes(sum((m) => m.mem_total))}`} />
-      <Stat label="Load (1m)" value={avg((m) => m.load1)?.toFixed(2) ?? '–'} sub="average" />
-      <Stat label="Network" value={`↓ ${rate(sum((m) => m.net_rx))}`} sub={`↑ ${rate(sum((m) => m.net_tx))}`} />
-      <Stat label="Disk I/O" value={`R ${rate(sum((m) => m.disk_read))}`} sub={`W ${rate(sum((m) => m.disk_write))}`} />
-    </div>
+    <Dropdown className="node-filter" keepOpen align="right" label={(
+      <><Icon name="nodes" size={14} /> {selected ? `${selected.size} of ${nodes.length} nodes` : `All ${nodes.length} nodes`}</>
+    )}>
+      <div className="node-filter-body">
+        <SearchInput value={query} onChange={setQuery} placeholder="Filter nodes" />
+        <div className="check-list compact">
+          {nodes.filter((n) => n.hostname.toLowerCase().includes(query.toLowerCase())).map((n) => (
+            <label key={n.id} className="check-row">
+              <input type="checkbox" checked={!selected || selected.has(n.id)} onChange={() => toggle(n.id)} />
+              <StatusDot online={n.online} />
+              <span className="truncate">{n.hostname}</span>
+            </label>
+          ))}
+        </div>
+        {selected && <button type="button" className="ghost small" onClick={() => setSelected(null)}>Show all nodes</button>}
+      </div>
+    </Dropdown>
   );
 }
 
-function useActiveSection(sections) {
-  const [active, setActive] = useState(null);
-  useEffect(() => {
-    const io = new IntersectionObserver((entries) => {
-      const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-      if (visible[0]) setActive(visible[0].target.dataset.section);
-    }, { rootMargin: '-80px 0px -60% 0px' });
-    for (const s of sections) {
-      const el = document.getElementById(`section-${slug(s)}`);
-      if (el) io.observe(el);
-    }
-    return () => io.disconnect();
-  }, [sections]);
-  return active;
-}
-
 /**
- * All charts for a scope, grouped into sections with a table of contents on
- * the right. With `filterNodes`, the right panel also lets you narrow the
- * charts to some of the scope's nodes.
+ * The metrics explorer: every chart in a scope, filterable by category, by
+ * a text search and (with `filterNodes`) by node. `sections` limits it to
+ * some categories.
  */
-export default function MetricsBoard({ group, nodes, filterNodes = true, summary = true, sections: only }) {
+export default function MetricsBoard({ group, nodes, filterNodes = true, sections: only }) {
   const time = useTime();
   const [selected, setSelected] = useState(null); // null = all nodes in scope
-  const [nodeQuery, setNodeQuery] = useState('');
+  const [category, setCategory] = useState(null); // null = all
+  const [query, setQuery] = useState('');
+  const [columns, setColumns] = useState(2);
   const nodeIds = selected ? [...selected] : null;
   const scope = useMemo(() => ({ group, nodes: nodeIds ?? (filterNodes ? null : nodes.map((n) => n.id)) }),
     [group, nodeIds?.join(','), filterNodes, nodes.map((n) => n.id).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -58,74 +54,61 @@ export default function MetricsBoard({ group, nodes, filterNodes = true, summary
   const [empty, setEmpty] = useState(false);
   const { data, error } = usePolling(`/charts${qs({ group: scope.group, nodes: scope.nodes, after: time.query.after, before: time.query.before })}`, time.live ? (empty ? 3000 : 60_000) : 0);
   useEffect(() => setEmpty(Boolean(data) && data.charts.length === 0), [data]);
-  const sections = (data?.sections ?? []).filter((s) => !only || only.includes(s));
-  const active = useActiveSection(sections);
-
-  const toggleNode = (id) => setSelected((cur) => {
-    const next = new Set(cur ?? nodes.map((n) => n.id));
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next.size === nodes.length ? null : next;
-  });
 
   if (error && !data) return <p className="error">Could not load charts: {error.message}</p>;
   if (!data) return <Loading label="Loading charts…" />;
 
-  const summaryNodes = selected ? nodes.filter((n) => selected.has(n.id)) : nodes;
+  const q = query.trim().toLowerCase();
+  const matches = (c) => !q || `${c.title} ${c.chart} ${c.section}`.toLowerCase().includes(q);
+  const available = data.sections.filter((s) => !only || only.includes(s));
+  const counts = Object.fromEntries(available.map((s) => [s, data.charts.filter((c) => c.section === s && matches(c)).length]));
+  const sections = available.filter((s) => (!category || s === category) && counts[s] > 0);
+  const total = available.reduce((a, s) => a + counts[s], 0);
 
   return (
-    <div className="metrics-layout">
-      <div className="metrics-main">
-        {summary && <SummaryStrip nodes={summaryNodes} />}
-        {!data.charts.some((c) => sections.includes(c.section)) && (
-          <Empty icon="metrics" title="No metrics in this time range">
-            Charts appear as soon as a node in this scope sends data.
-          </Empty>
-        )}
-        {sections.map((section) => (
-          <section key={section} className="metrics-section" id={`section-${slug(section)}`} data-section={section}>
-            <h2>{section}</h2>
-            <div className="charts two">
-              {data.charts.filter((c) => c.section === section).map((meta) => (
-                <MetricChart key={`${meta.chart}-${scope.nodes?.join(',') ?? ''}`} meta={meta} scope={scope} />
-              ))}
-            </div>
-          </section>
+    <div className="explorer">
+      <div className="explorer-bar">
+        <SearchInput value={query} onChange={setQuery} placeholder="Find a chart, e.g. disk or network" />
+        <div className="push toolbar-actions">
+          {filterNodes && nodes.length > 1 && <NodeFilter nodes={nodes} selected={selected} setSelected={setSelected} />}
+          <div className="seg" role="group" aria-label="Columns">
+            <button type="button" className={columns === 1 ? 'active' : ''} aria-label="One column" title="One column" onClick={() => setColumns(1)}>
+              <Icon name="menu" size={14} />
+            </button>
+            <button type="button" className={columns === 2 ? 'active' : ''} aria-label="Two columns" title="Two columns" onClick={() => setColumns(2)}>
+              <Icon name="dashboard" size={14} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="category-chips" role="tablist" aria-label="Chart categories">
+        <button type="button" role="tab" aria-selected={!category} className={`cat-chip ${!category ? 'active' : ''}`} onClick={() => setCategory(null)}>
+          All <span className="count">{total}</span>
+        </button>
+        {available.map((s) => (
+          <button key={s} type="button" role="tab" aria-selected={category === s} disabled={!counts[s]}
+            className={`cat-chip ${category === s ? 'active' : ''}`} onClick={() => setCategory(category === s ? null : s)}>
+            {s} <span className="count">{counts[s]}</span>
+          </button>
         ))}
       </div>
 
-      <aside className="metrics-side">
-        <div className="panel side-panel">
-          <h3>Contents</h3>
-          <nav className="toc">
-            {sections.map((section) => (
-              <div key={section}>
-                <a href={`#section-${slug(section)}`} className={`toc-section ${active === section ? 'active' : ''}`}>{section}</a>
-                {data.charts.filter((c) => c.section === section).map((c) => (
-                  <a key={c.chart} href={`#chart-${c.chart}`} className="toc-item">{c.title}</a>
-                ))}
-              </div>
+      {!sections.length && (
+        <Empty icon="metrics" title={q ? `No charts match “${query}”` : 'No metrics in this time range'}>
+          {q ? 'Try another word, or clear the search.' : 'Charts appear as soon as a node in this scope sends data.'}
+        </Empty>
+      )}
+      {sections.map((section) => (
+        <section key={section} className="metrics-section">
+          {!category && <h2 className="section-title">{section}</h2>}
+          <div className={`charts ${columns === 2 ? 'two' : ''}`}>
+            {data.charts.filter((c) => c.section === section && matches(c)).map((meta) => (
+              <MetricChart key={`${meta.chart}-${scope.nodes?.join(',') ?? ''}`} meta={meta} scope={scope} height={columns === 2 ? 190 : 230} />
             ))}
-          </nav>
-        </div>
-        {filterNodes && nodes.length > 1 && (
-          <div className="panel side-panel">
-            <h3>
-              Nodes <span className="muted small">{selected ? `${selected.size} of ${nodes.length}` : `all ${nodes.length}`}</span>
-            </h3>
-            <SearchInput value={nodeQuery} onChange={setNodeQuery} placeholder="Filter nodes" />
-            <div className="check-list compact">
-              {nodes.filter((n) => n.hostname.toLowerCase().includes(nodeQuery.toLowerCase())).map((n) => (
-                <label key={n.id} className="check-row">
-                  <input type="checkbox" checked={!selected || selected.has(n.id)} onChange={() => toggleNode(n.id)} />
-                  <StatusDot online={n.online} />
-                  <span className="truncate">{n.hostname}</span>
-                </label>
-              ))}
-            </div>
-            {selected && <button type="button" className="ghost small" onClick={() => setSelected(null)}>Select all</button>}
           </div>
-        )}
-      </aside>
+        </section>
+      ))}
     </div>
   );
 }

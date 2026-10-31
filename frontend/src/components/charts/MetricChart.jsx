@@ -26,8 +26,8 @@ function useVisible(ref) {
 
 /**
  * A chart card for one chart: fetches /api/charts/data for the given
- * scope (group and/or node IDs) and the global time window, with group-by,
- * aggregation and chart-type controls in its header.
+ * scope (group and/or node IDs) and the global time window. Group-by,
+ * aggregation and chart type are in the card's options menu.
  *
  * `settings` overrides the chart's defaults (title, groupBy, agg, type) and
  * `onSettingsChange` reports changes, which is how dashboards persist them.
@@ -89,31 +89,36 @@ export default function MetricChart({
   const data = useMemo(() => [result?.ts ?? [], ...(result?.series ?? []).map((s) => s.values)], [result]);
   const percent = meta.units === '%';
 
-  const toolbar = (
-    <div className="chart-toolbar">
-      <Dropdown label={<><span className="muted">Group by</span> {GROUP_LABELS[groupBy]}</>}>
-        {Object.entries(GROUP_LABELS).map(([id, label]) => (
-          <MenuItem key={id} active={groupBy === id} onClick={() => setGroupBy(id)}>{label}</MenuItem>
-        ))}
-      </Dropdown>
-      <Dropdown label={<><span className="muted">Aggregate</span> {AGG_LABELS[agg]}</>}>
-        {Object.entries(AGG_LABELS).map(([id, label]) => (
-          <MenuItem key={id} active={agg === id} onClick={() => setAgg(id)}>{label}</MenuItem>
-        ))}
-      </Dropdown>
-      <div className="seg" role="group" aria-label="Chart type">
-        {TYPES.map((t) => (
-          <button key={t} type="button" className={type === t ? 'active' : ''} onClick={() => setType(t)}>{t}</button>
-        ))}
-      </div>
-      {result && (
-        <span className="chart-chips muted small">
-          {plural(result.nodes, 'node')}
-          {result.instances > result.nodes && ` · ${plural(result.instances, 'instance')}`}
-          {` · ${plural(result.dimensions.length, 'dimension')}`}
-        </span>
+  // All of a chart's settings live in one menu, so cards stay compact.
+  const options = (
+    <Dropdown className="chart-options" align="right" chevron={false} ariaLabel="Chart options" label={<Icon name="more" size={16} />}>
+      <div className="menu-heading">Group by</div>
+      {Object.entries(GROUP_LABELS).map(([id, label]) => (
+        <MenuItem key={id} active={groupBy === id} onClick={() => setGroupBy(id)}>{label}</MenuItem>
+      ))}
+      <div className="menu-heading">Combine with</div>
+      {Object.entries(AGG_LABELS).map(([id, label]) => (
+        <MenuItem key={id} active={agg === id} onClick={() => setAgg(id)}>{label}</MenuItem>
+      ))}
+      <div className="menu-heading">Draw as</div>
+      {TYPES.map((t) => <MenuItem key={t} active={type === t} onClick={() => setType(t)}>{t}</MenuItem>)}
+      {canAddToDashboard && isAdmin && (
+        <>
+          <div className="menu-divider" />
+          <button type="button" className="menu-item" onClick={() => setAdding(true)}>
+            <span className="menu-check"><Icon name="dashboard" size={14} /></span>Add to dashboard
+          </button>
+        </>
       )}
-    </div>
+    </Dropdown>
+  );
+
+  const summary = result && (
+    <span className="chart-summary muted small">
+      {plural(result.nodes, 'node')}
+      {result.instances > result.nodes && ` · ${plural(result.instances, 'instance')}`}
+      {` · by ${GROUP_LABELS[groupBy]} · ${AGG_LABELS[agg].toLowerCase()}`}
+    </span>
   );
 
   const chart = (h) => (
@@ -125,23 +130,18 @@ export default function MetricChart({
     <section className={`panel net-chart ${className}`} ref={ref} id={`chart-${meta.chart}`}>
       <header className="chart-head">
         <div className="chart-title">
-          <h3>{title}</h3>
-          <span className="muted small">{meta.chart} · {meta.units}</span>
-          {meta.help && <span className="help" title={meta.help}><Icon name="info" size={14} /></span>}
+          <h3 title={meta.help || undefined}>{title}</h3>
+          <span className="chart-unit">{meta.units}</span>
         </div>
         <div className="chart-actions">
           {actions}
-          {canAddToDashboard && isAdmin && (
-            <button type="button" className="icon-button" aria-label="Add to dashboard" title="Add to dashboard" onClick={() => setAdding(true)}>
-              <Icon name="dashboard" size={15} />
-            </button>
-          )}
           <button type="button" className="icon-button" aria-label="Expand chart" title="Expand" onClick={() => setExpanded(true)}>
-            <Icon name="expand" size={15} />
+            <Icon name="expand" size={14} />
           </button>
+          {options}
         </div>
       </header>
-      {toolbar}
+      {summary}
       {error && <p className="error small">{error.message}</p>}
       {result && result.ts.length === 0 && <div className="chart-empty muted" style={{ height }}>No data in this time range</div>}
       {result && result.ts.length > 0 && !expanded && chart(height)}
@@ -152,9 +152,10 @@ export default function MetricChart({
       )}
       {expanded && (
         <Modal title={title} wide onClose={() => setExpanded(false)}>
-          {toolbar}
+          <div className="expanded-bar">{summary}{options}</div>
           {result && chart(Math.round(window.innerHeight * 0.55))}
           {meta.help && <p className="muted small">{meta.help}</p>}
+          <p className="muted small"><code>{meta.chart}</code></p>
         </Modal>
       )}
     </section>

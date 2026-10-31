@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, usePolling } from '../lib/api.js';
 import { Loading, Modal } from './ui/Bits.jsx';
+import { withScope } from '../lib/scope.js';
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
@@ -36,7 +37,7 @@ export default function AddToDashboard({ groupId = 'all', item, onClose }) {
       <Modal title="Added to dashboard" onClose={onClose} footer={(
         <>
           <button type="button" className="ghost" onClick={onClose}>Close</button>
-          <Link className="button primary" to={`/app/groups/${groupId}/dashboards/${done.id}`} onClick={onClose}>Open {done.name}</Link>
+          <Link className="button primary" to={withScope(`/app/dashboards/${done.id}`, groupId)} onClick={onClose}>Open {done.name}</Link>
         </>
       )}>
         <p>The chart was added to <strong>{done.name}</strong>.</p>

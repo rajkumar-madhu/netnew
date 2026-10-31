@@ -87,7 +87,19 @@ export default function Chart({
       select: { show: true },
       legend: { show: legend, live: true },
       scales: {
-        x: { time: true },
+        // A brand-new node has a point or two: show them in a one-minute
+        // window. (For a single point uPlot pads the axis by 86400/ms, which
+        // for timestamps in seconds is about three years.)
+        x: {
+          time: true,
+          range: (u, min, max) => {
+            const xs = u.data[0];
+            if (!xs?.length) return [min, max];
+            const first = xs[0];
+            const last = xs[xs.length - 1];
+            return last - first < 60 ? [last - 60, last] : [min, max];
+          },
+        },
         y: { range: percent && stacked ? [0, 100] : percent ? (u, min, max) => [0, Math.max(100, max)] : (u, min, max) => [Math.min(0, min), max > 0 ? max * 1.1 : 1] },
       },
       axes: [
@@ -110,7 +122,8 @@ export default function Chart({
             width: stacked ? 1 : 1.5,
             fill: filled ? withAlpha(color, stacked ? 0.55 : 0.15) : undefined,
             spanGaps: false,
-            points: { show: false },
+            // Dots only while there are too few points to draw a line.
+            points: { show: (u, si, i0, i1) => i1 - i0 < 2 },
             value: legendValue,
           };
         }),

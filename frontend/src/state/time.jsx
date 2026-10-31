@@ -7,10 +7,8 @@ import { nowSec } from '../lib/format.js';
 export const PRESETS = [
   { label: '5m', seconds: 300 },
   { label: '15m', seconds: 900 },
-  { label: '30m', seconds: 1800 },
   { label: '1h', seconds: 3600 },
   { label: '6h', seconds: 21600 },
-  { label: '12h', seconds: 43200 },
   { label: '24h', seconds: 86400 },
 ];
 

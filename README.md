@@ -41,8 +41,8 @@ npm start            # http://localhost:3000
 ```
 
 Open http://localhost:3000, click **Get started**, name your workspace and create the admin account. The app
-then shows the command to connect your first server. As an admin you can fill your agent token into it with one
-click.
+then opens **Connect a server**: pick the platform, copy the command (as an admin you can fill your agent token
+into it with one click), and the page shows the server as soon as its agent reports.
 
 ### Docker
 
@@ -75,8 +75,9 @@ npm run build && npm run test:e2e   # end-to-end: real backend, real agent, brow
 ```
 
 The end-to-end suite goes through the product the way a new customer does: landing page → setup → install
-command with the real token → the agent's node and live charts → a group → a dashboard → log search → an HTTP
-check → inviting a viewer and checking their access is read-only. Set `E2E_ARTIFACTS=<dir>` to keep its
+command with the real token → the agent arriving live → its node page and charts → the overview → the ⌘K
+palette → a group and the group switcher → the metrics explorer → a dashboard → log search → an HTTP check →
+inviting a viewer and checking their access is read-only. Set `E2E_ARTIFACTS=<dir>` to keep its
 screenshots. CI (`.github/workflows/ci.yml`) runs both suites on every push and pull request.
 
 ## Configuration
@@ -107,7 +108,7 @@ Install on Linux with systemd (the app shows this command with your server URL a
 curl -fsSL https://monitor.example.com/install.sh | sudo sh -s -- --token <TOKEN>
 ```
 
-The Integrations window also covers Ubuntu/Debian, RHEL/Fedora, macOS (LaunchAgent), Windows, FreeBSD, Docker,
+The **Connect a server** page also covers Ubuntu/Debian, RHEL/Fedora, macOS (LaunchAgent), Windows, FreeBSD, Docker,
 Docker Compose and a Kubernetes DaemonSet.
 
 | Variable | Default | Description |

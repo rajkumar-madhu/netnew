@@ -6,6 +6,7 @@ import Icon from '../../components/ui/Icon.jsx';
 import MetricChart from '../../components/charts/MetricChart.jsx';
 import { ago, plural } from '../../lib/format.js';
 import { useAuth } from '../../state/auth.jsx';
+import { withScope } from '../../lib/scope.js';
 
 const WIDTHS = [
   { cols: 3, label: 'Quarter' },
@@ -39,7 +40,7 @@ function NewDashboard({ groupId, onClose }) {
     e.preventDefault();
     try {
       const d = await api('/dashboards', { method: 'POST', body: { group_id: groupId, name, description } });
-      navigate(`/app/groups/${groupId}/dashboards/${d.id}?edit=1`);
+      navigate(withScope(`/app/dashboards/${d.id}?edit=1`, groupId));
     } catch (err) {
       setError(err.message);
     }
@@ -78,12 +79,12 @@ export function DashboardList() {
       {data?.length === 0 && (
         <Empty icon="dashboard" title="No dashboards in this group yet"
           action={isAdmin && <button type="button" className="primary" onClick={() => setCreating(true)}>Create a dashboard</button>}>
-          You can also add any chart from the Metrics tab with its dashboard button.
+          You can also add any chart from the Metrics page, with “Add to dashboard” in the chart's ⋯ menu.
         </Empty>
       )}
       <div className="dash-cards">
         {data?.map((d) => (
-          <Link key={d.id} to={`/app/groups/${group.id}/dashboards/${d.id}`} className="panel dash-card">
+          <Link key={d.id} to={withScope(`/app/dashboards/${d.id}`, group.id)} className="panel dash-card">
             <Icon name="dashboard" size={22} />
             <strong>{d.name}</strong>
             {d.description && <span className="muted small">{d.description}</span>}
@@ -232,7 +233,7 @@ export function DashboardView() {
     return (chart) => map.get(chart) ?? { chart, title: chart, units: '', type: 'line', agg: 'avg', groupBy: 'dimension', section: 'Other' };
   }, [catalog]);
 
-  if (error) return <Empty icon="dashboard" title="Dashboard not found" action={<Link className="button primary" to={`/app/groups/${group.id}/dashboards`}>All dashboards</Link>}>{error.message}</Empty>;
+  if (error) return <Empty icon="dashboard" title="Dashboard not found" action={<Link className="button primary" to={withScope('/app/dashboards', group.id)}>All dashboards</Link>}>{error.message}</Empty>;
   if (!dash || !catalog) return <Loading />;
 
   const editing = Boolean(draft);
@@ -259,13 +260,13 @@ export function DashboardView() {
   async function remove() {
     if (!window.confirm(`Delete dashboard "${dash.name}"?`)) return;
     await api(`/dashboards/${dash.id}`, { method: 'DELETE' });
-    navigate(`/app/groups/${group.id}/dashboards`);
+    navigate(withScope('/app/dashboards', group.id));
   }
 
   return (
     <div className={`dashboard ${editing ? 'editing' : ''}`}>
       <div className="toolbar dash-head">
-        <Link to={`/app/groups/${group.id}/dashboards`} className="icon-button" aria-label="All dashboards"><Icon name="back" size={16} /></Link>
+        <Link to={withScope('/app/dashboards', group.id)} className="icon-button" aria-label="All dashboards"><Icon name="back" size={16} /></Link>
         {editing ? (
           <>
             <input className="dash-name-input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} aria-label="Dashboard name" maxLength={80} />

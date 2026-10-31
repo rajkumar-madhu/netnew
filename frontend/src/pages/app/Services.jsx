@@ -107,7 +107,7 @@ export function ServicesView({ groupId, nodes, single = false }) {
       {!units.data ? <Loading /> : <SystemdUnits inventory={units.data} single={single} />}
 
       <div className="section-head"><h2>Charts</h2></div>
-      <MetricsBoard group={groupId} nodes={nodes} filterNodes={!single} summary={false} sections={APP_SECTIONS} />
+      <MetricsBoard group={groupId} nodes={nodes} filterNodes={!single} sections={APP_SECTIONS} />
 
       {adding && <JobDialog nodes={jobNodes} onClose={() => setAdding(false)} onSaved={jobs.reload} />}
     </div>

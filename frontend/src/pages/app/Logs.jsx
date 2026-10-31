@@ -4,7 +4,6 @@ import { api, qs, useLive } from '../../lib/api.js';
 import { Empty, Loading, SearchInput } from '../../components/ui/Bits.jsx';
 import Chart from '../../components/charts/Chart.jsx';
 import Icon from '../../components/ui/Icon.jsx';
-import { useIntegrations } from '../../components/IntegrationsModal.jsx';
 import { compact } from '../../lib/format.js';
 import { useTime } from '../../state/time.jsx';
 
@@ -55,7 +54,6 @@ function Facet({ title, items, selected, onToggle, colors, searchable }) {
 /** Log explorer for a group, or for one node when `single` is set. */
 export function LogExplorer({ groupId, nodes, single = false }) {
   const time = useTime();
-  const integrations = useIntegrations();
   const [query, setQuery] = useState('');
   const q = useDebounced(query, 300);
   const [levels, setLevels] = useState([]);
@@ -170,7 +168,7 @@ export function LogExplorer({ groupId, nodes, single = false }) {
         {!rows && !error && <Loading />}
         {rows?.length === 0 && (
           <Empty icon="logs" title={filtersOn ? 'No log lines match' : 'No logs in this time range'}
-            action={!filtersOn && <button type="button" className="ghost" onClick={() => integrations.show('collect.logs')}>How to collect logs</button>}>
+            action={!filtersOn && <Link className="button ghost" to="/app/connect#logs">How to collect logs</Link>}>
             {filtersOn ? 'Try fewer filters or a longer time range.' : 'Agents read the systemd journal automatically, and any files listed in NETNEW_LOG_FILES.'}
           </Empty>
         )}

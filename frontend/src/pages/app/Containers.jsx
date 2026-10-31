@@ -3,7 +3,6 @@ import { Link, useOutletContext } from 'react-router-dom';
 import { qs, usePolling } from '../../lib/api.js';
 import { CellMeter, Empty, Loading, SearchInput, SortTh, sortBy, Stat } from '../../components/ui/Bits.jsx';
 import Icon from '../../components/ui/Icon.jsx';
-import { useIntegrations } from '../../components/IntegrationsModal.jsx';
 import MetricsBoard from '../../components/charts/MetricsBoard.jsx';
 import { ago, bytes, pct, rate } from '../../lib/format.js';
 
@@ -124,7 +123,6 @@ function PodTable({ pods, showNode }) {
 
 /** Docker containers and Kubernetes pods for a set of nodes. */
 export function ContainersView({ groupId, nodes, single = false }) {
-  const integrations = useIntegrations();
   const { data, error } = usePolling(`/containers${qs({ group: groupId, nodes: single ? [nodes[0].id] : undefined })}`, 5000);
 
   if (error && !data) return <p className="error">{error.message}</p>;
@@ -138,7 +136,7 @@ export function ContainersView({ groupId, nodes, single = false }) {
   if (!containers.length && !pods.length) {
     return (
       <Empty icon="container" title="No containers found"
-        action={<button type="button" className="ghost" onClick={() => integrations.show('collect.containers')}>How container monitoring works</button>}>
+        action={<Link className="button ghost" to="/app/connect#containers">How container monitoring works</Link>}>
         Agents read Docker through /var/run/docker.sock (the agent's user needs access to it), and Kubernetes pods when deployed as the DaemonSet.
         {errors.length > 0 && <><br />{errors.join(' · ')}</>}
       </Empty>
@@ -171,7 +169,7 @@ export function ContainersView({ groupId, nodes, single = false }) {
         </>
       )}
       <div className="section-head"><h2>Charts</h2></div>
-      <MetricsBoard group={groupId} nodes={nodes} filterNodes={!single} summary={false} sections={['Containers', 'Kubernetes']} />
+      <MetricsBoard group={groupId} nodes={nodes} filterNodes={!single} sections={['Containers', 'Kubernetes']} />
     </div>
   );
 }

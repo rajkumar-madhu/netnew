@@ -1,17 +1,17 @@
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import GroupLayout from '../components/layout/GroupLayout.jsx';
-import Shell from '../components/layout/Shell.jsx';
+import AppLayout from '../components/layout/AppLayout.jsx';
 import { Empty } from '../components/ui/Bits.jsx';
 import Alerts from '../pages/app/Alerts.jsx';
 import Anomalies from '../pages/app/Anomalies.jsx';
+import Connect from '../pages/app/Connect.jsx';
 import Containers from '../pages/app/Containers.jsx';
 import { DashboardList, DashboardView } from '../pages/app/Dashboards.jsx';
 import Events from '../pages/app/Events.jsx';
-import Home from '../pages/app/Home.jsx';
 import Logs from '../pages/app/Logs.jsx';
 import Metrics from '../pages/app/Metrics.jsx';
 import NodeView from '../pages/app/NodeView.jsx';
 import Nodes from '../pages/app/Nodes.jsx';
+import Overview from '../pages/app/Overview.jsx';
 import Processes from '../pages/app/Processes.jsx';
 import Services from '../pages/app/Services.jsx';
 import Settings from '../pages/app/Settings.jsx';
@@ -31,10 +31,10 @@ function NotFound({ home = '/' }) {
   );
 }
 
-// /app opens the "All nodes" group, keeping any query (e.g. ?integrations=...).
+// /app opens the overview, keeping any query (e.g. ?group=...).
 function AppHome() {
   const { search } = useLocation();
-  return <Navigate to={{ pathname: 'groups/all/home', search }} replace />;
+  return <Navigate to={{ pathname: 'overview', search }} replace />;
 }
 
 // The signed-in application, under /app.
@@ -44,24 +44,22 @@ function AppRoutes() {
       <TimeProvider>
         <WorkspaceProvider>
           <Routes>
-            <Route element={<Shell />}>
+            <Route element={<AppLayout />}>
               <Route index element={<AppHome />} />
-              <Route path="groups/:groupId" element={<GroupLayout />}>
-                <Route index element={<Navigate to="home" replace />} />
-                <Route path="home" element={<Home />} />
-                <Route path="nodes" element={<Nodes />} />
-                <Route path="metrics" element={<Metrics />} />
-                <Route path="dashboards" element={<DashboardList />} />
-                <Route path="dashboards/:dashboardId" element={<DashboardView />} />
-                <Route path="logs" element={<Logs />} />
-                <Route path="containers" element={<Containers />} />
-                <Route path="services" element={<Services />} />
-                <Route path="processes" element={<Processes />} />
-                <Route path="events" element={<Events />} />
-                <Route path="alerts" element={<Alerts />} />
-                <Route path="anomalies" element={<Anomalies />} />
-              </Route>
+              <Route path="overview" element={<Overview />} />
+              <Route path="nodes" element={<Nodes />} />
               <Route path="nodes/:nodeId/:tab?" element={<NodeView />} />
+              <Route path="metrics" element={<Metrics />} />
+              <Route path="dashboards" element={<DashboardList />} />
+              <Route path="dashboards/:dashboardId" element={<DashboardView />} />
+              <Route path="logs" element={<Logs />} />
+              <Route path="containers" element={<Containers />} />
+              <Route path="services" element={<Services />} />
+              <Route path="processes" element={<Processes />} />
+              <Route path="alerts" element={<Alerts />} />
+              <Route path="anomalies" element={<Anomalies />} />
+              <Route path="activity" element={<Events />} />
+              <Route path="connect" element={<Connect />} />
               <Route path="settings/:section?" element={<Settings />} />
               <Route path="*" element={<NotFound home="/app" />} />
             </Route>

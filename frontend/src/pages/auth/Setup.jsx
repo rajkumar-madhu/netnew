@@ -13,8 +13,8 @@ export default function Setup() {
   const [done, setDone] = useState(false);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  // Straight after setup, open the app on the "connect your servers" instructions.
-  if (done) return <Navigate to="/app/groups/all/home?integrations=deploy.servers" replace />;
+  // Straight after setup, open the app on the "connect a server" page.
+  if (done) return <Navigate to="/app/connect?welcome=1" replace />;
   if (auth.loading) return <Loading />;
   // (Skipped while submitting: the refreshed auth state arrives before `done`.)
   if (!auth.setupRequired && !busy) return <Navigate to={auth.user ? '/app' : '/login'} replace />;

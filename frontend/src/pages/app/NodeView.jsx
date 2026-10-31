@@ -1,15 +1,13 @@
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
-import { Empty, Loading, Meter, Severity, StatusDot } from '../../components/ui/Bits.jsx';
+import { Empty, Loading, Meter, Ring, Severity, StatusDot } from '../../components/ui/Bits.jsx';
 import Icon from '../../components/ui/Icon.jsx';
 import MetricsBoard from '../../components/charts/MetricsBoard.jsx';
 import ProcessTable from '../../components/ProcessTable.jsx';
-import { PageHeader } from '../../components/layout/GroupLayout.jsx';
-import TimePicker from '../../components/layout/TimePicker.jsx';
 import { ContainersView } from './Containers.jsx';
 import { LogExplorer } from './Logs.jsx';
 import { ServicesView } from './Services.jsx';
-import { ago, bytes, dateTime, duration, nowSec, pct } from '../../lib/format.js';
+import { ago, bytes, dateTime, duration, memPct, nowSec, pct } from '../../lib/format.js';
 import { useWorkspace } from '../../state/workspace.jsx';
 import { useAuth } from '../../state/auth.jsx';
 
@@ -20,7 +18,7 @@ const TABS = [
   { id: 'services', label: 'Services', icon: 'services' },
   { id: 'processes', label: 'Processes', icon: 'top' },
   { id: 'alerts', label: 'Alerts', icon: 'alerts' },
-  { id: 'info', label: 'Info', icon: 'info' },
+  { id: 'info', label: 'Details', icon: 'info' },
 ];
 
 function InfoRow({ label, children }) {
@@ -43,7 +41,7 @@ export default function NodeView() {
   if (!node) {
     return (
       <div className="page">
-        <Empty icon="nodes" title="Node not found" action={<Link className="button primary" to="/app/groups/all/nodes">All nodes</Link>}>
+        <Empty icon="nodes" title="Node not found" action={<Link className="button primary" to="/app/nodes">All nodes</Link>}>
           It may have been deleted.
         </Empty>
       </div>
@@ -57,32 +55,55 @@ export default function NodeView() {
     if (!window.confirm(`Delete ${node.hostname} and all of its data? This can't be undone.`)) return;
     try {
       await api(`/nodes/${nodeId}`, { method: 'DELETE' });
-      navigate('/app/groups/all/nodes');
+      navigate('/app/nodes');
     } catch (err) {
       window.alert(err.message);
     }
   }
 
-  return (
-    <>
-      <PageHeader
-        title={<><StatusDot online={node.online} /> {node.hostname}</>}
-        subtitle={node.online ? `${node.os} · ${node.arch} · up ${duration(nowSec() - node.bootTime)}` : `offline · last seen ${ago(node.lastSeen)}`}
-        tabs={(
-          <nav className="tabs" aria-label="Node views">
-            <Link to="/app/groups/all/nodes" className="tab back"><Icon name="back" size={15} /> Nodes</Link>
-            {TABS.map((t) => (
-              <NavLink key={t.id} to={`/app/nodes/${nodeId}/${t.id}`} className={() => `tab ${tab === t.id ? 'active' : ''}`}>
-                <Icon name={t.icon} size={15} /> {t.label}
-                {t.id === 'alerts' && nodeAlerts.length > 0 && <span className="tab-count warning">{nodeAlerts.length}</span>}
-              </NavLink>
-            ))}
-          </nav>
-        )}>
-        <TimePicker />
-      </PageHeader>
+  const m = node.online ? node.latest : null;
+  const facts = [
+    ['Operating system', node.os],
+    ['Architecture', node.arch],
+    ['CPU', node.cores ? `${node.cores} cores` : null],
+    ['Memory', node.memTotal ? bytes(node.memTotal) : null],
+    ['IP address', node.ip],
+    [node.online ? 'Uptime' : 'Last seen', node.online ? duration(nowSec() - node.bootTime) : ago(node.lastSeen)],
+  ];
 
-      <div className="page">
+  return (
+    <div className="node-page">
+      <Link to="/app/nodes" className="back-link"><Icon name="back" size={14} /> All nodes</Link>
+      <section className="node-hero">
+        <div className="node-hero-main">
+          <div className="node-hero-title">
+            <h1>{node.hostname}</h1>
+            <span className={`status-pill ${node.online ? 'on' : 'off'}`}><StatusDot online={node.online} /> {node.online ? 'Reporting' : 'Offline'}</span>
+            {nodeAlerts.length > 0 && <span className="status-pill warn">{nodeAlerts.length} active {nodeAlerts.length === 1 ? 'alert' : 'alerts'}</span>}
+          </div>
+          <dl className="facts">
+            {facts.map(([label, value]) => (
+              <div key={label}><dt>{label}</dt><dd className="truncate" title={value ?? ''}>{value ?? '–'}</dd></div>
+            ))}
+          </dl>
+        </div>
+        <div className="node-rings">
+          <Ring label="CPU" value={m?.cpu} />
+          <Ring label="Memory" value={memPct(m)} />
+          <Ring label="Disk" value={m?.disk_pct} />
+        </div>
+      </section>
+
+      <nav className="pill-tabs" aria-label="Node views">
+        {TABS.map((t) => (
+          <NavLink key={t.id} to={`/app/nodes/${nodeId}/${t.id}`} className={() => `pill-tab ${tab === t.id ? 'active' : ''}`}>
+            <Icon name={t.icon} size={15} /> {t.label}
+            {t.id === 'alerts' && nodeAlerts.length > 0 && <span className="tab-count warning">{nodeAlerts.length}</span>}
+          </NavLink>
+        ))}
+      </nav>
+
+      <div className="node-body">
         {nodeAlerts.length > 0 && tab !== 'alerts' && (
           <div className="panel alert-strip">
             {nodeAlerts.map((a) => (
@@ -154,6 +175,6 @@ export default function NodeView() {
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
