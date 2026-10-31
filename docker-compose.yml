@@ -8,7 +8,9 @@ services:
     environment:
       # Set these in a .env file next to this compose file.
       AGENT_TOKEN: ${AGENT_TOKEN:-}
-      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}
       RETENTION_HOURS: ${RETENTION_HOURS:-24}
     restart: unless-stopped
 

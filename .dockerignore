@@ -1,5 +1,5 @@
 **/node_modules
-web/dist
+frontend/dist
 **/data
 **/.env
 .git

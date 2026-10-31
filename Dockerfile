@@ -1,25 +1,26 @@
-# NetNew server + dashboard. Agents run on the machines being monitored.
+# NetNew backend + web app. Agents run on the machines being monitored.
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
-COPY server/package.json server/
-COPY web/package.json web/
+COPY backend/package.json backend/
+COPY frontend/package.json frontend/
 COPY agent/package.json agent/
 RUN npm ci --no-audit --no-fund
-COPY web web
+COPY frontend frontend
 RUN npm run build
 
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production DATA_DIR=/data PORT=3000
 COPY package.json package-lock.json ./
-COPY server/package.json server/
-COPY web/package.json web/
+COPY backend/package.json backend/
+COPY frontend/package.json frontend/
 COPY agent/package.json agent/
-RUN npm ci --omit=dev --no-audit --no-fund -w server && npm cache clean --force
-COPY server server
-COPY agent/*.js agent/package.json agent/
-COPY --from=build /app/web/dist web/dist
+RUN npm ci --omit=dev --no-audit --no-fund -w backend && npm cache clean --force
+COPY backend backend
+COPY agent/package.json agent/
+COPY agent/src agent/src
+COPY --from=build /app/frontend/dist frontend/dist
 VOLUME /data
 EXPOSE 3000
-CMD ["node", "--disable-warning=ExperimentalWarning", "server/src/index.js"]
+CMD ["node", "--disable-warning=ExperimentalWarning", "backend/src/index.js"]

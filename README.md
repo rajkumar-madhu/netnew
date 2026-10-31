@@ -1,224 +1,163 @@
 # NetNew
 
-Real-time infrastructure monitoring modeled on the [Netdata](https://www.netdata.cloud/) Cloud experience. A
-lightweight agent on each server streams per-second metrics to a central server. The server stores them, evaluates
-alerts, detects anomalies and pushes everything live to a React dashboard.
+**Self-hosted, real-time infrastructure monitoring.** A lightweight agent on each server streams per-second
+metrics, logs, container stats and service health to a NetNew server. The server stores them, raises alerts,
+detects anomalies and pushes everything live to a web app your whole team can sign in to.
 
-**The dashboard** follows Netdata Cloud's layout: a space with **rooms** of nodes, and room tabs for
-**Home, Nodes, Metrics, Dashboards, Logs, Containers, Services, Top, Events, Alerts and Anomalies**. It has a global time picker with live/paused modes and
-drag-to-zoom, light and dark themes, and an **Integrations** catalog. It also opens from the same URL parameters
-Netdata uses, e.g. `?integrationsModalOpen=true&selectedIntegrationCategory=deploy.operating-systems`.
+| | |
+|---|---|
+| **Metrics** | CPU by state and per core, memory, swap, load, per-interface network, per-disk I/O and busy time, disk space per mount, processes, context switches, interrupts, temperatures. One-second resolution, 40+ built-in charts. |
+| **Groups** | Organize nodes by environment, team or service. Every view, dashboard and alert list can be scoped to a group. |
+| **Dashboards** | Build boards from any chart and any nodes, choose how series are grouped (by dimension, node or instance) and aggregated (avg, sum, min, max), add notes, drag to arrange. |
+| **Logs** | The systemd journal and any log file, with full-text search, level/service/node facets, a level histogram and live follow. |
+| **Containers** | Per-container CPU, memory, network and disk from Docker; pods with phase, restarts and resource use on Kubernetes. |
+| **Services** | HTTP, TCP and ping checks plus Nginx, Redis, PostgreSQL and MySQL collectors, configured in the browser and run by the node's agent. systemd unit states. |
+| **Alerts** | CPU, RAM, disk space, node offline, failed checks and failed systemd units, delivered to Slack, Discord or any webhook. |
+| **Anomalies** | Every metric is compared each second with its own learned baseline; the rate of anomalies is charted per node and metric. |
+| **Accounts** | First-run setup, sign-in, admin and read-only viewer roles, user management. |
 
-| Area | What you get |
-|------|--------------|
-| Metrics | Per-second CPU breakdown (user/system/iowait/softirq/steal…), per-core CPU, RAM, swap, load, context switches, interrupts, per-interface traffic/packets/errors, per-disk bandwidth/ops/busy time, per-mount disk space, process counts, CPU temperature. 19 chart types grouped into sections with a table of contents. |
-| Charts | Netdata-style toolbar on every chart: **group by** dimension/node/instance, **aggregate** avg/sum/min/max, line/area/stacked, expand to full screen, shared hover cursor, drag to zoom. Charts refresh only while on screen. |
-| Rooms | Group nodes by environment or team. Each room has its own view of every tab. The built-in "All nodes" room holds everything. |
-| Nodes | Sortable, searchable table with live CPU/RAM/disk/load/network. Create rooms from a selection, delete offline nodes. |
-| Top | Live `top`-style process list per node (CPU, memory, RSS, state, command), refreshed every 3s. |
-| Alerts | CPU, RAM and disk-space thresholds (warning/critical, with hysteresis) and node-offline detection. Raised, history and configuration views. |
-| Notifications | Slack, Discord and generic webhook channels, with a minimum severity, enable/disable and a test button. |
-| Anomalies | Every metric is compared each second with a learned baseline (EWMA mean ± 4σ). Shows anomaly rate over time, a node × metric heat map and recent anomalies. |
-| Dashboards | Build boards per room from any chart (any nodes, grouping, aggregation, type) plus text notes. Drag to reorder, resize width and height. "Add to dashboard" on every chart. |
-| Logs | systemd journal (automatic on Linux) and any log files you list. Full-text search (SQLite FTS5), level/service/node facets with counts, a level histogram, live follow, paging to older lines. |
-| Containers | Per-container CPU, memory, network and disk I/O from the Docker Engine API, plus Kubernetes pods (phase, restarts, CPU, memory, I/O) when deployed as a DaemonSet. |
-| Services | Service checks (HTTP, TCP, ping) and application collectors (Nginx, Redis, PostgreSQL, MySQL), configured from the dashboard and run by the node's agent. Plus systemd unit states with a failed-unit alert. |
-| Events | Feed of node created/connected/disconnected/removed events, alert transitions and notification failures. |
-| Storage | SQLite via Node's built-in `node:sqlite` (nothing to compile). Per-second data plus a per-minute tier, so 24-hour charts stay fast. |
+## Product structure
 
 ```
- ┌──────────────┐  WebSocket /ws/agent   ┌──────────────────────────────┐  WebSocket /ws/live  ┌───────────────┐
- │ agent (each  │ ─────────────────────▶ │ server (Express + ws)        │ ───────────────────▶ │ React         │
- │ server)      │  1 sample / second     │ SQLite · alerts · anomalies  │  REST /api/*         │ dashboard     │
- └──────────────┘  + process lists       │ notifications · rollups      │ ◀─────────────────── └───────────────┘
-                                         └──────────────────────────────┘
+netnew/
+├── frontend/   React web app: landing page, sign-in/setup, and the monitoring app (Vite)
+├── backend/    Node.js server: REST API, WebSockets, SQLite storage, alerting, notifications
+├── agent/      Node.js agent that runs on every monitored machine
+├── e2e/        End-to-end browser tests (Playwright)
+└── docs/       Architecture notes
 ```
 
-## Project layout
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit together, the data model and the agent
+protocol.
 
-| Path      | What it is |
-|-----------|------------|
-| `agent/`  | Node.js agent. `index.js` collects system metrics (reading `/proc` directly on Linux, `systeminformation` elsewhere) and buffers up to 15 minutes of samples while disconnected. `logs.js`, `containers.js`, `jobs.js` and `services.js` are the log, container, collector-job and systemd modules. |
-| `server/` | Express API, agent and dashboard WebSockets, SQLite storage, alert engine, anomaly detector, notifier, `/install.sh`. |
-| `web/`    | React + Vite dashboard with [uPlot](https://github.com/leeoniya/uPlot) charts. |
+## Quick start
 
-Server modules: `db.js` (schema, queries, retention and rollups), `api.js` (REST routes), `contexts.js` (chart
-catalog: titles, units, sections, defaults), `shape.js` (group-by/aggregation), `logstore.js` (log storage and
-search), `jobs.js` (collector job types and validation), `alerts.js`, `anomalies.js`, `notify.js`.
-
-## Quick start (development)
-
-The server needs **Node.js 22.13+**; the agent runs on Node 18+.
+Requires **Node.js 22.13+** for the server; the agent runs on Node.js 18+.
 
 ```bash
 npm install
-
-# 1. Server on :3000. It prints the agent token and saves it to server/data/agent-token.
-npm run dev:server
-
-# 2. Dashboard dev server on :5173 (proxies /api and /ws to :3000).
-npm run dev:web
-
-# 3. An agent for this machine.
-cp agent/.env.example agent/.env   # paste the token into NETNEW_TOKEN
-npm run dev:agent
+npm run build        # builds frontend/dist, which the backend serves
+npm start            # http://localhost:3000
 ```
 
-Open http://localhost:5173.
+Open http://localhost:3000, click **Get started**, name your workspace and create the admin account. The app
+then shows the command to connect your first server. As an admin you can fill your agent token into it with one
+click.
 
-## Production
-
-```bash
-npm install
-npm run build        # builds web/dist, which the server serves
-npm start            # http://0.0.0.0:3000
-```
-
-Or with Docker:
+### Docker
 
 ```bash
-echo "DASHBOARD_PASSWORD=change-me" > .env
 docker compose up -d --build
-docker compose logs netnew | grep "Agent token"
 ```
 
-For internet-facing deployments, put the server behind a TLS-terminating reverse proxy (nginx, Caddy). Agents
-then use `https://` URLs and connect over `wss://` automatically. Make sure the proxy forwards WebSocket upgrades
-for `/ws/`.
+To skip the setup page in automated deployments, set `ADMIN_EMAIL` and `ADMIN_PASSWORD` (for example in a
+`.env` file next to `docker-compose.yml`); that account is created on first start.
 
-### Server configuration
+For internet-facing deployments, put the server behind a TLS-terminating reverse proxy (nginx, Caddy) that
+forwards WebSocket upgrades for `/ws/`. Agents then connect over `wss://`, and session cookies are marked
+`Secure` automatically.
 
-Set these as environment variables or in `server/.env` (see `server/.env.example`).
+## Development
 
-| Variable             | Default  | Description |
-|----------------------|----------|-------------|
-| `PORT` / `HOST`      | `3000` / `0.0.0.0` | Listen address. |
-| `DATA_DIR`           | `./data` | SQLite database and generated agent token. |
-| `AGENT_TOKEN`        | generated | Shared secret agents must present. |
-| `RETENTION_HOURS`    | `24`     | How long per-second and per-minute metrics are kept. Events and alert history are kept 7 days. |
-| `LOG_RETENTION_HOURS` / `LOG_MAX_ROWS` | `72` / `2000000` | How long log lines are kept, and the cap on stored lines. |
-| `OFFLINE_AFTER_SEC`  | `15`     | Silence before a node is marked offline and alerted on. |
-| `SPACE_NAME`         | `My Space` | Name shown in the sidebar. |
-| `PUBLIC_URL`         | unset    | Dashboard URL, used for links in notifications. |
-| `DASHBOARD_USER`     | `admin`  | Basic-auth user for the dashboard and API. |
-| `DASHBOARD_PASSWORD` | unset    | Enables basic auth. **Set this for any non-local deployment.** |
+```bash
+npm install
+npm run dev:backend    # API + WebSockets on :3000 (restarts on changes)
+npm run dev:frontend   # Vite dev server on :5173, proxying /api and /ws to :3000
+cp agent/.env.example agent/.env   # paste the agent token (Settings → General)
+npm run dev:agent      # an agent for this machine
+```
+
+### Tests
+
+```bash
+npm test               # backend unit and API tests (node:test)
+npm run build && npm run test:e2e   # end-to-end: real backend, real agent, browser (needs Playwright + Chromium)
+```
+
+The end-to-end suite goes through the product the way a new customer does: landing page → setup → install
+command with the real token → the agent's node and live charts → a group → a dashboard → log search → an HTTP
+check → inviting a viewer and checking their access is read-only. Set `E2E_ARTIFACTS=<dir>` to keep its
+screenshots. CI (`.github/workflows/ci.yml`) runs both suites on every push and pull request.
+
+## Configuration
+
+### Server (`backend/.env`, see `backend/.env.example`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` / `HOST` | `3000` / `0.0.0.0` | Listen address. |
+| `DATA_DIR` | `./data` | SQLite database and the generated agent token. |
+| `AGENT_TOKEN` | generated | Shared secret agents must present. |
+| `WORKSPACE_NAME` | `My Workspace` | Default name until setup sets one. |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | unset | Create this admin on start when there are no users. |
+| `COOKIE_SECURE` | `auto` | Mark session cookies `Secure`: `auto` (when the request is HTTPS), `true` or `false`. |
+| `RETENTION_HOURS` | `24` | Per-second and per-minute metric retention. Events and alert history are kept 7 days. |
+| `LOG_RETENTION_HOURS` / `LOG_MAX_ROWS` | `72` / `2000000` | Log retention by age and row count. |
+| `OFFLINE_AFTER_SEC` | `15` | Silence before a node is marked offline and alerted on. |
+| `PUBLIC_URL` | unset | App URL, used for links in notifications. |
 
 Storage needs are roughly 20 bytes per value. A typical 4-core VM reports about 50 values per second, which is
 about 75 MB per node per day of retention.
 
-## Adding nodes
+### Agent
 
-In the dashboard, click **Connect nodes** for copy-paste instructions with your server URL filled in. The
-Integrations window covers Linux, Ubuntu/Debian, RHEL/Fedora, macOS (with a LaunchAgent), Windows, FreeBSD, Docker,
-Docker Compose and a Kubernetes DaemonSet.
-
-**Linux with systemd:**
+Install on Linux with systemd (the app shows this command with your server URL and token):
 
 ```bash
 curl -fsSL https://monitor.example.com/install.sh | sudo sh -s -- --token <TOKEN>
-systemctl status netnew-agent
 ```
 
-This installs to `/opt/netnew-agent`, writes `/etc/netnew-agent.env` and registers the `netnew-agent` service.
-Remove it with `… | sudo sh -s -- --uninstall`.
+The Integrations window also covers Ubuntu/Debian, RHEL/Fedora, macOS (LaunchAgent), Windows, FreeBSD, Docker,
+Docker Compose and a Kubernetes DaemonSet.
 
-| Agent variable        | Default | Description |
-|-----------------------|---------|-------------|
-| `NETNEW_URL`          | `http://localhost:3000` | Server URL. |
-| `NETNEW_TOKEN`        | required | Agent token. |
-| `NETNEW_HOSTNAME`     | machine hostname | Display name in the dashboard. |
-| `NETNEW_INTERVAL_MS`  | `1000`  | Collection interval. |
-| `NETNEW_STATE_DIR`    | `~/.netnew-agent` | Where the persistent node ID is stored. |
-| `NETNEW_LOG_FILES`    | none    | Comma-separated log files to tail. The systemd journal is read automatically. |
-| `NETNEW_DISABLE`      | none    | Modules to turn off: `logs`, `journal`, `containers`, `services`, `processes`. |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NETNEW_URL` | `http://localhost:3000` | Server URL. |
+| `NETNEW_TOKEN` | required | Agent token. |
+| `NETNEW_HOSTNAME` | machine hostname | Display name. |
+| `NETNEW_INTERVAL_MS` | `1000` | Collection interval. |
+| `NETNEW_STATE_DIR` | `~/.netnew-agent` | Where the persistent node ID is stored. |
+| `NETNEW_LOG_FILES` | none | Comma-separated log files to tail (the systemd journal is read automatically). |
+| `NETNEW_DISABLE` | none | Modules to turn off: `logs`, `journal`, `containers`, `services`, `processes`. |
 | `NETNEW_DOCKER_SOCKET` | `/var/run/docker.sock` | Docker Engine API socket. |
-| `NETNEW_CGROUP_ROOT` / `NETNEW_K8S_NODE` | `/sys/fs/cgroup` / hostname | Where pod cgroups live, and this node's Kubernetes name (both set by the DaemonSet manifest). |
+| `NETNEW_CGROUP_ROOT` / `NETNEW_K8S_NODE` | `/sys/fs/cgroup` / hostname | Pod cgroups and this node's Kubernetes name (set by the DaemonSet manifest). |
 
-The agent is several files; installers fetch the list from `GET /agent/manifest`. The PostgreSQL (`pg`) and
-MySQL (`mysql2`) drivers are optional dependencies, loaded only when such a job runs.
+## Alerts
 
-## Logs
+| Alert | Rule |
+|-------|------|
+| CPU utilization | 60s average ≥ 80% warning, ≥ 95% critical |
+| RAM usage | 60s average ≥ 85% warning, ≥ 95% critical |
+| Disk space usage | fullest filesystem ≥ 85% warning, ≥ 95% critical |
+| Node offline | no data for `OFFLINE_AFTER_SEC` (critical) |
+| Service check failed | 2 consecutive failed runs of a check or collector (critical) |
+| Failed systemd units | any service unit in the `failed` state (warning) |
 
-On Linux the agent follows the systemd journal (`journalctl -o json -f`) from the moment it connects, keeping
-each entry's unit and syslog priority. Plain files listed in `NETNEW_LOG_FILES` are tailed with rotation
-handling, and each line's level is guessed from words like ERROR and WARN. The agent sends at most 300 lines per
-second and reports how many it dropped. On the server, lines go into SQLite with an FTS5 index. The Logs tab
-searches all words as prefixes, filters by level, service and node, and follows new lines live.
-
-## Containers and Kubernetes
-
-If the agent can read the Docker socket, it reports every container's state, plus CPU (as a percentage of one
-core), memory (excluding page cache), network and block I/O every 5 seconds. Deployed with the Kubernetes
-manifest from the Integrations window, it also reports the pods on its node: names, phase and restarts from the
-API server (read-only RBAC), and CPU/memory/I/O from the host's cgroup v2 tree.
-
-## Service checks and application collectors
-
-Add jobs from **Services → Add check or collector**, **Space settings → Collectors**, or the Integrations window.
-The server stores them and pushes each node's jobs to its agent, which starts them within seconds.
-
-| Type | Settings | Charts |
-|------|----------|--------|
-| HTTP | URL, method, expected status (e.g. `200-399`), body text, timeout | status, response time |
-| TCP | host, port, timeout | status, connect time |
-| Ping | host, packets per run (uses the system `ping`) | status, round-trip time, packet loss |
-| Nginx | `stub_status` URL | connections by state, requests/s |
-| Redis | host, port, password | clients, memory, ops/s, hits/misses, keys |
-| PostgreSQL | connection string | connections, transactions/s, cache hit ratio, database size |
-| MySQL / MariaDB | connection string | connections, queries/s, slow queries, traffic |
-
-A job that fails twice in a row raises a critical alert naming the error, which clears on the next success.
-Passwords and connection strings are stored on the server and sent only to the agent that runs the job. The API
-never returns them to the browser.
-
-## Alerts and notifications
-
-Rules live in `server/src/alerts.js`. Each averages its value over a window, and an alert clears only once the
-value drops 5 points below the threshold, so alerts don't flap.
-
-| Alert            | Window | Warning | Critical |
-|------------------|--------|---------|----------|
-| CPU utilization  | 60s    | ≥ 80%   | ≥ 95%    |
-| RAM usage        | 60s    | ≥ 85%   | ≥ 95%    |
-| Disk space usage | 10s    | ≥ 85%   | ≥ 95%    |
-| Node offline     | no data for `OFFLINE_AFTER_SEC` | | critical |
-| Service check failed | 2 consecutive failed runs | | critical |
-| Failed systemd units | any unit in the `failed` state | warning | |
-
-Add Slack, Discord or webhook channels under **Space settings → Alert notifications**. Notifications are sent
-when an alert is raised, changes severity or clears. Webhook channels receive the full alert as JSON:
-
-```json
-{ "kind": "raised", "status": "warning", "text": "🟠 [WARNING] web-01: CPU utilization is 82.3% (60s average)",
-  "alert": { "rule": "cpu_usage", "severity": "warning", "value": 82.3, "node_id": "…", "started_at": 1792874231 },
-  "node": { "id": "…", "hostname": "web-01" }, "ts": 1792874231 }
-```
+Alerts clear 5 points below their threshold so they don't flap. Thresholds live in
+`backend/src/services/alerts.js`. Add Slack, Discord or webhook channels under **Settings → Alert
+notifications**; webhooks receive the alert as JSON.
 
 ## API
 
-Time-ranged endpoints take Netdata-style `after`/`before`: unix seconds, or relative to now when ≤ 0
-(`after=-900&before=0` means the last 15 minutes). Scoped endpoints take `room=<id>` (default: all nodes) and/or
-`nodes=id1,id2`.
+All endpoints are under `/api` and need a signed-in session, except `/api/health` and `/api/auth/*`. Viewers
+can read; changes need an admin. Time-ranged endpoints take `after`/`before` (unix seconds, or relative to now
+when ≤ 0) and scoped endpoints take `group=<id>` (default: all nodes) and/or `nodes=id1,id2`.
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/space` | Space name, version, retention, auth status. |
-| `GET/POST /api/rooms`, `PATCH/DELETE /api/rooms/:id`, `PUT /api/rooms/:id/nodes` | Rooms and their members. |
-| `GET /api/nodes` | Nodes with status, latest summary sample and alert counts. |
-| `GET/DELETE /api/nodes/:id` | One node; delete an offline node and its data. |
-| `GET /api/nodes/:id/processes` | Latest process snapshot (top 60 by CPU). |
-| `GET /api/contexts` | Charts available for the scope, with sections, instances and dimensions. |
-| `GET /api/data?context=system.cpu&group_by=node&agg=sum&dims=user,system&points=600` | Chart data for one context. |
-| `GET /api/nodes/:id/metrics`, `GET /api/overview?metric=cpu\|ram\|net\|load\|disk` | Summary-metric history. |
-| `GET /api/alerts[?state=active]`, `GET /api/alert-rules` | Alerts and rule definitions. |
-| `GET /api/events?type=node,alert,notification` | Event feed. |
-| `GET /api/anomalies` | Anomaly rates per node and metric, timeline, recent anomalies. |
-| `GET /api/logs?q=&level=error,warning&service=&node=&before_id=&after_id=` | Log lines, newest first (`after_id` returns newer lines, oldest first). |
-| `GET /api/logs/facets`, `GET /api/logs/histogram` | Facet counts and per-level histogram for the same filters. |
-| `GET/POST /api/dashboards`, `GET/PUT/DELETE /api/dashboards/:id` | Custom dashboards (`?room=` to list a room's). |
-| `GET /api/catalog` | Every chart context with title, units and defaults. |
-| `GET /api/containers`, `GET /api/services` | Latest Docker/Kubernetes and systemd inventories per node. |
-| `GET /api/job-types`, `GET/POST /api/jobs`, `PATCH/DELETE /api/jobs/:id` | Collector jobs (secrets masked) with their latest status. |
+| `GET /api/auth/state`, `POST /api/auth/setup`, `POST /api/auth/login`, `POST /api/auth/logout` | Setup and sessions. |
+| `GET /api/auth/me`, `POST /api/auth/password` | Current user, change password. |
+| `GET/PATCH /api/workspace`, `GET /api/workspace/agent-token` | Workspace info and name; the agent token (admins). |
+| `GET/POST /api/users`, `PATCH/DELETE /api/users/:id` | Users and roles (admins). |
+| `GET/POST /api/groups`, `PATCH/DELETE /api/groups/:id`, `PUT /api/groups/:id/nodes` | Groups and their members. |
+| `GET /api/nodes`, `GET/DELETE /api/nodes/:id`, `GET /api/nodes/:id/processes` | Nodes and live process lists. |
+| `GET /api/charts/catalog`, `GET /api/charts`, `GET /api/charts/data?chart=&group_by=&agg=&dims=` | Charts and chart data. |
+| `GET /api/alerts`, `GET /api/alert-rules`, `GET /api/events`, `GET /api/anomalies` | Alerts, rules, event feed, anomalies. |
+| `GET /api/logs`, `GET /api/logs/facets`, `GET /api/logs/histogram` | Log search (`q`, `level`, `service`, `node`, `before_id`, `after_id`). |
+| `GET/POST /api/dashboards`, `GET/PUT/DELETE /api/dashboards/:id` | Dashboards. |
+| `GET /api/containers`, `GET /api/services` | Latest container and systemd inventories. |
+| `GET /api/job-types`, `GET/POST /api/jobs`, `PATCH/DELETE /api/jobs/:id` | Checks and collectors (secrets masked). |
 | `GET/POST /api/channels`, `PATCH/DELETE /api/channels/:id`, `POST /api/channels/:id/test` | Notification channels. |
-| `GET /api/health` | Liveness check. |
-| `WS /ws/live` | Live stream of `sample`, `node`, `node_removed`, `alert`, `event`, `logs` and `rooms` messages. |
+| `WS /ws/live` | Live updates for signed-in users. |
+| `WS /ws/agent` | Agent connections (Bearer agent token). |
+| `GET /install.sh`, `GET /agent/manifest`, `GET /agent/<file>` | Public agent installer and files. |
