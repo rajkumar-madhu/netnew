@@ -1,19 +1,21 @@
 {
   "name": "netnew",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Real-time infrastructure monitoring: lightweight agents, a Node.js server and a React dashboard.",
+  "description": "NetNew: real-time infrastructure monitoring. Agents, backend API and web app.",
   "workspaces": [
-    "server",
-    "web",
+    "backend",
+    "frontend",
     "agent"
   ],
   "scripts": {
-    "build": "npm run build -w web",
-    "start": "npm start -w server",
-    "dev:server": "npm run dev -w server",
-    "dev:web": "npm run dev -w web",
-    "dev:agent": "npm run dev -w agent"
+    "build": "npm run build -w frontend",
+    "start": "npm start -w backend",
+    "dev:backend": "npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend",
+    "dev:agent": "npm run dev -w agent",
+    "test": "npm test -w backend",
+    "test:e2e": "node --disable-warning=ExperimentalWarning --test \"e2e/**/*.e2e.test.js\""
   },
   "engines": {
     "node": ">=22.13"
