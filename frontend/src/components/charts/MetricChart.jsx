@@ -122,7 +122,7 @@ export default function MetricChart({
   );
 
   const chart = (h) => (
-    <Chart data={data} series={series} format={format} type={type} percent={percent} height={h}
+    <Chart data={data} series={series} format={format} type={type} percent={percent} height={h} minSpan={time.live ? 60 : 0}
       onZoom={(after, before) => time.setFixed(after, before)} />
   );
 

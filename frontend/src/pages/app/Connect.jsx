@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { ago } from '../../lib/format.js';
@@ -9,7 +9,25 @@ import Icon from '../../components/ui/Icon.jsx';
 import { useAuth } from '../../state/auth.jsx';
 import { useWorkspace } from '../../state/workspace.jsx';
 
-const nowSec = () => Math.floor(Date.now() / 1000);
+const nowSec = () => Date.now() / 1000;
+
+// Servers that first connected this long before the page opened still count
+// as "just connected", e.g. one started while the workspace was being set up.
+const RECENT_SEC = 120;
+
+// The server's clock when the page opened, and how far this browser's clock
+// is from it. Node timestamps come from the server, so comparing them with
+// the browser's clock would break whenever the two disagree.
+function useServerClock() {
+  const [clock, setClock] = useState(null);
+  useEffect(() => {
+    const sent = nowSec();
+    api('/health')
+      .then((h) => setClock({ openedAt: h.time, offset: Math.round(h.time - (sent + nowSec()) / 2) }))
+      .catch(() => setClock({ openedAt: nowSec(), offset: 0 }));
+  }, []);
+  return clock;
+}
 
 function Step({ n, title, children, done }) {
   return (
@@ -24,9 +42,9 @@ function Step({ n, title, children, done }) {
 }
 
 // Watches for nodes that connected since this page was opened.
-function WaitForNode({ since }) {
+function WaitForNode({ clock }) {
   const { nodes } = useWorkspace();
-  const fresh = (nodes ?? []).filter((n) => n.firstSeen >= since - 5);
+  const fresh = clock ? (nodes ?? []).filter((n) => n.firstSeen >= clock.openedAt - RECENT_SEC) : [];
   const others = (nodes ?? []).length - fresh.length;
   if (fresh.length) {
     return (
@@ -34,7 +52,7 @@ function WaitForNode({ since }) {
         {fresh.map((n) => (
           <div key={n.id} className="connected-row">
             <StatusDot online={n.online} />
-            <span><strong>{n.hostname}</strong> <span className="muted">connected {ago(n.firstSeen)}</span></span>
+            <span><strong>{n.hostname}</strong> <span className="muted">connected {ago(n.firstSeen - clock.offset)}</span></span>
             <Link className="button primary push" to={`/app/nodes/${n.id}`}>Open {n.hostname} <Icon name="arrow" size={14} /></Link>
           </div>
         ))}
@@ -63,7 +81,7 @@ export default function Connect() {
   const { hash } = useLocation();
   const [platformId, setPlatformId] = useState(params.get('platform') ?? 'linux');
   const [token, setToken] = useState(null);
-  const since = useRef(nowSec()).current;
+  const clock = useServerClock();
   const platform = PLATFORMS.find((p) => p.id === platformId) ?? PLATFORMS[0];
   const origin = window.location.origin;
 
@@ -115,7 +133,7 @@ export default function Connect() {
         </Step>
 
         <Step n={3} title="See it arrive">
-          <WaitForNode since={since} />
+          <WaitForNode clock={clock} />
         </Step>
       </div>
 

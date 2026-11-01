@@ -6,6 +6,7 @@ import Icon from '../../components/ui/Icon.jsx';
 import MetricChart from '../../components/charts/MetricChart.jsx';
 import { ago, plural } from '../../lib/format.js';
 import { useAuth } from '../../state/auth.jsx';
+import { useGroup } from '../../state/workspace.jsx';
 import { withScope } from '../../lib/scope.js';
 
 const WIDTHS = [
@@ -205,7 +206,7 @@ function ItemControls({ item, index, count, onChange, onMove, onEdit, onRemove }
 }
 
 export function DashboardView() {
-  const { group, nodes } = useOutletContext();
+  const scope = useOutletContext();
   const { dashboardId } = useParams();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
@@ -227,6 +228,17 @@ export function DashboardView() {
       }
     }).catch(setError);
   }, [dashboardId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A dashboard always shows its own group's nodes, whatever ?group= the link
+  // carried (shared or hand-edited links may have none, or another group).
+  const own = useGroup(dash?.group_id ?? scope.group.id);
+  const group = own.group ?? scope.group;
+  const nodes = own.group ? own.nodes : scope.nodes;
+  useEffect(() => {
+    if (dash && own.group && dash.group_id !== scope.group.id) {
+      navigate(withScope(`/app/dashboards/${dash.id}`, dash.group_id), { replace: true });
+    }
+  }, [dash, own.group, scope.group.id, navigate]);
 
   const metaFor = useMemo(() => {
     const map = new Map(catalog?.charts.map((c) => [c.chart, c]) ?? []);

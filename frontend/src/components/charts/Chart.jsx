@@ -42,11 +42,12 @@ function stack(data) {
 /**
  * Time-series chart. `data` is uPlot's column format: [timestamps, ...series]
  * with timestamps in unix seconds. Charts sharing a `syncKey` share the hover
- * cursor; dragging across a chart calls onZoom(after, before).
+ * cursor; dragging across a chart calls onZoom(after, before). `minSpan` is
+ * the narrowest time axis, in seconds (used while following live data).
  */
 export default function Chart({
   data, series, format = (v) => String(v), type = 'line', percent = false,
-  height = 200, syncKey = 'netnew', onZoom, legend = true,
+  height = 200, syncKey = 'netnew', onZoom, legend = true, minSpan = 0,
 }) {
   const { theme } = useTheme();
   const el = useRef(null);
@@ -57,6 +58,8 @@ export default function Chart({
   zoom.current = onZoom;
   const fmt = useRef(format);
   fmt.current = format;
+  const minSpanRef = useRef(minSpan);
+  minSpanRef.current = minSpan;
 
   const stacked = type === 'stacked';
   const plotted = useMemo(() => (stacked ? stack(data) : data), [data, stacked]);
@@ -87,9 +90,10 @@ export default function Chart({
       select: { show: true },
       legend: { show: legend, live: true },
       scales: {
-        // A brand-new node has a point or two: show them in a one-minute
-        // window. (For a single point uPlot pads the axis by 86400/ms, which
-        // for timestamps in seconds is about three years.)
+        // While live, a brand-new node's point or two are shown in a window
+        // of at least `minSpan` seconds. In any mode a single point gets a
+        // small window: uPlot would pad it by 86400/ms, which for timestamps
+        // in seconds is about three years.
         x: {
           time: true,
           range: (u, min, max) => {
@@ -97,7 +101,9 @@ export default function Chart({
             if (!xs?.length) return [min, max];
             const first = xs[0];
             const last = xs[xs.length - 1];
-            return last - first < 60 ? [last - 60, last] : [min, max];
+            if (last - first < minSpanRef.current) return [last - minSpanRef.current, last];
+            if (first === last) return [last - 5, last + 5];
+            return [min, max];
           },
         },
         y: { range: percent && stacked ? [0, 100] : percent ? (u, min, max) => [0, Math.max(100, max)] : (u, min, max) => [Math.min(0, min), max > 0 ? max * 1.1 : 1] },
