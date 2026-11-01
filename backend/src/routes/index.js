@@ -21,7 +21,8 @@ export function createApi(core) {
   api.use(sameOrigin);
 
   api.get('/health', (req, res) => {
-    res.json({ ok: true, version: core.version, uptime: core.now() - core.startedAt, agents: core.agents.size });
+    // `time` is the server's clock (unix seconds), so clients can compare server timestamps without trusting their own clock.
+    res.json({ ok: true, version: core.version, time: core.now(), uptime: core.now() - core.startedAt, agents: core.agents.size });
   });
   registerAuthRoutes(api, ctx);
 

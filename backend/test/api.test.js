@@ -19,7 +19,9 @@ describe('API', () => {
       const state = await client(server.base).get('/api/auth/state');
       assert.equal(state.data.setupRequired, true);
       assert.equal((await client(server.base).get('/api/nodes')).status, 401);
-      assert.equal((await client(server.base).get('/api/health')).status, 200);
+      const health = await client(server.base).get('/api/health');
+      assert.equal(health.status, 200);
+      assert.ok(Math.abs(health.data.time - Date.now() / 1000) < 5, 'health reports the server time in seconds');
     });
 
     it('validates and completes setup once', async () => {

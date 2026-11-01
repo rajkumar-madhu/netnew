@@ -5,7 +5,7 @@ import { ALL_GROUP, useScopeId, useScopedPath } from '../../lib/scope.js';
 import { useAuth } from '../../state/auth.jsx';
 import { useTheme } from '../../state/theme.jsx';
 import { useGroup, useWorkspace } from '../../state/workspace.jsx';
-import { Dropdown, Loading } from '../ui/Bits.jsx';
+import { Dropdown, Empty, Loading } from '../ui/Bits.jsx';
 import Icon, { Logo } from '../ui/Icon.jsx';
 import CommandPalette from './CommandPalette.jsx';
 import { NAV, NAV_ITEMS } from './nav.js';
@@ -128,7 +128,7 @@ function TopBar({ onMenu, onSearch }) {
  */
 export default function AppLayout() {
   const scopeId = useScopeId();
-  const { groups } = useWorkspace();
+  const { groups, error, reload } = useWorkspace();
   const known = !groups || groups.some((g) => g.id === scopeId);
   const scope = useGroup(known ? scopeId : ALL_GROUP);
   const { pathname } = useLocation();
@@ -157,7 +157,12 @@ export default function AppLayout() {
       <div className="main">
         <TopBar onMenu={() => setNavOpen(true)} onSearch={() => setPaletteOpen(true)} />
         <main className="content">
-          {scope.loading ? <Loading /> : (
+          {scope.loading && error ? (
+            <Empty icon="info" title="Couldn't load your workspace"
+              action={<button type="button" className="primary" onClick={reload}>Try again</button>}>
+              {error.message}
+            </Empty>
+          ) : scope.loading ? <Loading /> : (
             <>
               {page && (
                 <PageHeader title={page.label} description={page.description}

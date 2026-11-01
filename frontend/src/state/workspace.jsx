@@ -17,6 +17,14 @@ export function WorkspaceProvider({ children }) {
   const loadNodes = useCallback(() => api('/nodes').then(setNodes).catch(setError), []);
   const loadAlerts = useCallback(() => api('/alerts?state=active').then(setAlerts).catch(() => {}), []);
   const loadWorkspace = useCallback(() => api('/workspace').then(setWorkspace).catch(setError), []);
+  // Retry after a failed load: the app shows `error` only while data is missing.
+  const reload = useCallback(() => {
+    setError(null);
+    loadWorkspace();
+    loadGroups();
+    loadNodes();
+    loadAlerts();
+  }, [loadWorkspace, loadGroups, loadNodes, loadAlerts]);
 
   useEffect(() => {
     loadWorkspace();
@@ -63,8 +71,8 @@ export function WorkspaceProvider({ children }) {
   });
 
   const value = useMemo(() => ({
-    workspace, groups, nodes, alerts, error, loadGroups, loadNodes, loadAlerts, loadWorkspace,
-  }), [workspace, groups, nodes, alerts, error, loadGroups, loadNodes, loadAlerts, loadWorkspace]);
+    workspace, groups, nodes, alerts, error, loadGroups, loadNodes, loadAlerts, loadWorkspace, reload,
+  }), [workspace, groups, nodes, alerts, error, loadGroups, loadNodes, loadAlerts, loadWorkspace, reload]);
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }

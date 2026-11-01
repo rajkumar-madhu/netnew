@@ -171,6 +171,16 @@ describe('NetNew end to end', { timeout: 180_000 }, () => {
     await shot('07-dashboard');
   });
 
+  it('opens a shared dashboard link in the dashboard\'s own group', async () => {
+    // A link without ?group= (e.g. pasted by a teammate) still shows the
+    // dashboard's group, and the app switches its scope to match.
+    const { pathname } = new URL(page.url());
+    await page.goto(`${base}${pathname}`);
+    await page.waitForURL(/\?group=/);
+    await page.locator('.scope-name', { hasText: 'Web tier' }).waitFor();
+    await page.locator('.dash-item canvas').first().waitFor({ timeout: 15_000 });
+  });
+
   it('finds the agent\'s log lines', async () => {
     await page.locator('.sidebar').getByRole('link', { name: 'Logs' }).click();
     await page.getByPlaceholder(/Search log messages/).fill('gateway timeout');
