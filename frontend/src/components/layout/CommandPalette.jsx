@@ -49,6 +49,18 @@ export default function CommandPalette({ open, onClose }) {
   }, [query, nodes, groups, scoped]);
 
   useEffect(() => setIndex(0), [query]);
+
+  // While open: no page scrolling behind it, and focus goes back to where it
+  // was (e.g. the search button) when it closes.
+  useEffect(() => {
+    if (!open) return undefined;
+    const previous = document.activeElement;
+    document.body.classList.add('modal-open');
+    return () => {
+      document.body.classList.remove('modal-open');
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [open]);
   useEffect(() => {
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [index]);
@@ -64,7 +76,10 @@ export default function CommandPalette({ open, onClose }) {
     if (e.key === 'ArrowUp') { e.preventDefault(); setIndex((i) => Math.max(i - 1, 0)); }
     if (e.key === 'Enter') { e.preventDefault(); go(results[index]); }
     if (e.key === 'Escape') onClose();
+    // The input is the dialog's only stop: results are chosen with the arrow keys.
+    if (e.key === 'Tab') e.preventDefault();
   };
+  const optionId = (i) => `palette-option-${i}`;
 
   return createPortal(
     <div className="modal-backdrop palette-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -73,22 +88,24 @@ export default function CommandPalette({ open, onClose }) {
           <Icon name="search" size={18} />
           <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKey}
             placeholder="Search pages, nodes and groups…" aria-label="Search pages, nodes and groups"
-            role="combobox" aria-expanded="true" aria-controls="palette-list" />
+            role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list"
+            aria-activedescendant={results[index] ? optionId(index) : undefined} />
           <kbd>Esc</kbd>
         </label>
         <div className="palette-list" id="palette-list" role="listbox" ref={listRef}>
           {results.map((r, i) => (
-            <button key={r.key} type="button" role="option" aria-selected={i === index}
+            <div key={r.key} id={optionId(i)} role="option" aria-selected={i === index}
               className={`palette-item ${i === index ? 'active' : ''}`}
-              onMouseEnter={() => setIndex(i)} onClick={() => go(r)}>
+              onMouseEnter={() => setIndex(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => go(r)}>
               <span className="palette-icon"><Icon name={r.icon} size={16} /></span>
               <span className="palette-label truncate">{r.label}</span>
               {r.hint && <span className="muted small truncate palette-hint">{r.hint}</span>}
               <span className="palette-kind">{r.kind}</span>
-            </button>
+            </div>
           ))}
           {!results.length && <p className="muted pad">Nothing matches “{query}”.</p>}
         </div>
+        <div className="sr-only" aria-live="polite">{results.length ? `${results.length} results` : 'No results'}</div>
       </div>
     </div>,
     document.body,

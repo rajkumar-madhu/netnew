@@ -131,20 +131,48 @@ describe('NetNew end to end', { timeout: 180_000 }, () => {
     await page.keyboard.press('Control+k');
     const search = page.getByRole('combobox', { name: 'Search pages, nodes and groups' });
     await search.fill('e2e-n');
-    await page.getByRole('option', { name: /e2e-node/ }).waitFor();
+    const option = page.getByRole('option', { name: /e2e-node/ });
+    await option.waitFor();
+    // The highlighted result is announced through aria-activedescendant.
+    assert.equal(await search.getAttribute('aria-activedescendant'), await option.getAttribute('id'));
+    await search.press('Tab');
+    assert.ok(await search.evaluate((el) => el === document.activeElement), 'Tab stays in the palette');
     await search.press('Enter');
     await page.waitForURL(/\/app\/nodes\/.+/);
   });
 
+  it('opens menus from the keyboard', async () => {
+    const trigger = page.getByRole('button', { name: 'Account menu' });
+    await trigger.focus();
+    await trigger.press('ArrowDown');
+    const focusedName = () => page.evaluate(() => document.activeElement?.textContent?.trim());
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('role')), 'menuitem');
+    assert.equal(await focusedName(), 'Account');
+    await page.keyboard.press('End');
+    assert.equal(await focusedName(), 'Sign out');
+    await page.keyboard.press('Escape');
+    assert.ok(await trigger.evaluate((el) => el === document.activeElement), 'Escape returns focus to the trigger');
+    assert.equal(await page.getByRole('menu').count(), 0);
+  });
+
   it('creates a group and scopes the app to it', async () => {
     await page.getByRole('button', { name: 'Choose group' }).click();
-    await page.getByRole('button', { name: 'New group' }).click();
+    await page.getByRole('menuitem', { name: 'New group' }).click();
     await page.getByPlaceholder('e.g. Production').fill('Web tier');
     await page.locator('.check-row', { hasText: 'e2e-node' }).locator('input').check();
     await page.getByRole('dialog').getByRole('button', { name: 'Create group' }).click();
     await page.waitForURL(/\/app\/nodes\?group=/);
     await page.locator('.page-kicker', { hasText: 'Web tier · 1 of 1 nodes live' }).waitFor();
     assert.match(await page.locator('.scope-name').textContent(), /Web tier/);
+  });
+
+  it('drops a link\'s unknown group', async () => {
+    await page.goto(`${base}/app/overview?group=deleted-group`);
+    await page.locator('.health-banner').waitFor();
+    await page.waitForURL((url) => !url.searchParams.has('group'));
+    assert.match(await page.locator('.scope-name').textContent(), /All nodes/);
+    await page.goBack();
+    await page.waitForURL(/\?group=/);
   });
 
   it('filters the metrics explorer', async () => {
@@ -209,7 +237,7 @@ describe('NetNew end to end', { timeout: 180_000 }, () => {
     await page.locator('td', { hasText: VIEWER.email }).waitFor();
 
     await page.getByRole('button', { name: 'Account menu' }).click();
-    await page.getByRole('button', { name: 'Sign out' }).click();
+    await page.getByRole('menuitem', { name: 'Sign out' }).click();
     await page.waitForURL(/\/login/);
 
     await page.getByLabel('Email').fill(VIEWER.email);

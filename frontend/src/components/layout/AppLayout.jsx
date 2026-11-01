@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useSearchParams } from 'react-router-dom';
 import { useLiveStatus } from '../../lib/api.js';
 import { ALL_GROUP, useScopeId, useScopedPath } from '../../lib/scope.js';
 import { useAuth } from '../../state/auth.jsx';
 import { useTheme } from '../../state/theme.jsx';
 import { useGroup, useWorkspace } from '../../state/workspace.jsx';
-import { Dropdown, Empty, Loading } from '../ui/Bits.jsx';
+import { Dropdown, Empty, Loading, MenuAction, MenuDivider, MenuLink } from '../ui/Bits.jsx';
 import Icon, { Logo } from '../ui/Icon.jsx';
 import CommandPalette from './CommandPalette.jsx';
 import { NAV, NAV_ITEMS } from './nav.js';
@@ -33,20 +33,15 @@ function UserMenu() {
   return (
     <Dropdown className="user-menu" align="right" chevron={false} ariaLabel="Account menu"
       label={<span className="user-avatar" title={user.name}>{initials}</span>}>
-      <div className="user-card">
+      <div className="user-card" role="presentation">
         <strong>{user.name}</strong>
         <span className="muted small">{user.email}</span>{' '}
         <span className="role-badge">{user.role}</span>
       </div>
-      <Link className="menu-item" to="/app/settings/account"><span className="menu-check"><Icon name="user" size={14} /></span>Account</Link>
-      <button type="button" className="menu-item" onClick={toggle}>
-        <span className="menu-check"><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={14} /></span>
-        {theme === 'dark' ? 'Light theme' : 'Dark theme'}
-      </button>
-      <div className="menu-divider" />
-      <button type="button" className="menu-item" onClick={() => auth.logout()}>
-        <span className="menu-check"><Icon name="logout" size={14} /></span>Sign out
-      </button>
+      <MenuLink icon="user" to="/app/settings/account">Account</MenuLink>
+      <MenuAction icon={theme === 'dark' ? 'sun' : 'moon'} onClick={toggle}>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</MenuAction>
+      <MenuDivider />
+      <MenuAction icon="logout" onClick={() => auth.logout()}>Sign out</MenuAction>
     </Dropdown>
   );
 }
@@ -136,6 +131,13 @@ export default function AppLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   useEffect(() => setNavOpen(false), [pathname]);
+
+  // A link to a group that no longer exists (or never did) shows All nodes;
+  // drop the bad ?group= so every link on the page stops carrying it.
+  const [, setParams] = useSearchParams();
+  useEffect(() => {
+    if (!known) setParams((p) => { p.delete('group'); return p; }, { replace: true });
+  }, [known, setParams]);
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {

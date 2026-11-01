@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ALL_GROUP, useScopeId, withScope } from '../../lib/scope.js';
 import { useAuth } from '../../state/auth.jsx';
 import { useWorkspace } from '../../state/workspace.jsx';
 import GroupDialog from '../GroupDialog.jsx';
-import { Dropdown } from '../ui/Bits.jsx';
+import { Dropdown, MenuAction, MenuDivider, MenuHeading, MenuLink } from '../ui/Bits.jsx';
 import Icon from '../ui/Icon.jsx';
 
 // Pages that show one thing rather than a scope go back to their list when
@@ -40,13 +40,13 @@ export default function ScopeSwitcher() {
           <Icon name="updown" size={14} />
         </>
       )}>
-        <div className="menu-heading">Show data from</div>
+        <MenuHeading>Show data from</MenuHeading>
         {(groups ?? []).map((g) => {
           const ids = new Set(g.nodeIds);
           const groupAlerts = alerts.filter((a) => ids.has(a.node_id));
           const critical = groupAlerts.some((a) => a.severity === 'critical');
           return (
-            <button key={g.id} type="button" role="menuitemradio" aria-checked={g.id === current?.id}
+            <button key={g.id} type="button" role="menuitemradio" aria-checked={g.id === current?.id} tabIndex={-1}
               className={`menu-item scope-option ${g.id === current?.id ? 'active' : ''}`} onClick={() => choose(g.id)}>
               <span className="menu-check">{g.id === current?.id && <Icon name="check" size={14} />}</span>
               <span className="truncate">{g.name}</span>
@@ -55,15 +55,9 @@ export default function ScopeSwitcher() {
             </button>
           );
         })}
-        <div className="menu-divider" />
-        {isAdmin && (
-          <button type="button" className="menu-item" onClick={() => setCreating(true)}>
-            <span className="menu-check"><Icon name="plus" size={14} /></span>New group
-          </button>
-        )}
-        <Link className="menu-item" to="/app/settings/groups">
-          <span className="menu-check"><Icon name="settings" size={14} /></span>Manage groups
-        </Link>
+        <MenuDivider />
+        {isAdmin && <MenuAction icon="plus" onClick={() => setCreating(true)}>New group</MenuAction>}
+        <MenuLink icon="settings" to="/app/settings/groups">Manage groups</MenuLink>
       </Dropdown>
       {creating && <GroupDialog onClose={() => setCreating(false)} onSaved={(g) => g && choose(g.id)} />}
     </>

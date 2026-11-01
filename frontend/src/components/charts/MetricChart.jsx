@@ -3,7 +3,7 @@ import { api, qs } from '../../lib/api.js';
 import { formatterFor, plural } from '../../lib/format.js';
 import { shouldRefresh, useTime } from '../../state/time.jsx';
 import AddToDashboard from '../AddToDashboard.jsx';
-import { Dropdown, MenuItem, Modal } from '../ui/Bits.jsx';
+import { Dropdown, MenuAction, MenuDivider, MenuHeading, MenuItem, Modal } from '../ui/Bits.jsx';
 import Chart from './Chart.jsx';
 import Icon from '../ui/Icon.jsx';
 import { useAuth } from '../../state/auth.jsx';
@@ -92,22 +92,20 @@ export default function MetricChart({
   // All of a chart's settings live in one menu, so cards stay compact.
   const options = (
     <Dropdown className="chart-options" align="right" chevron={false} ariaLabel="Chart options" label={<Icon name="more" size={16} />}>
-      <div className="menu-heading">Group by</div>
+      <MenuHeading>Group by</MenuHeading>
       {Object.entries(GROUP_LABELS).map(([id, label]) => (
         <MenuItem key={id} active={groupBy === id} onClick={() => setGroupBy(id)}>{label}</MenuItem>
       ))}
-      <div className="menu-heading">Combine with</div>
+      <MenuHeading>Combine with</MenuHeading>
       {Object.entries(AGG_LABELS).map(([id, label]) => (
         <MenuItem key={id} active={agg === id} onClick={() => setAgg(id)}>{label}</MenuItem>
       ))}
-      <div className="menu-heading">Draw as</div>
+      <MenuHeading>Draw as</MenuHeading>
       {TYPES.map((t) => <MenuItem key={t} active={type === t} onClick={() => setType(t)}>{t}</MenuItem>)}
       {canAddToDashboard && isAdmin && (
         <>
-          <div className="menu-divider" />
-          <button type="button" className="menu-item" onClick={() => setAdding(true)}>
-            <span className="menu-check"><Icon name="dashboard" size={14} /></span>Add to dashboard
-          </button>
+          <MenuDivider />
+          <MenuAction icon="dashboard" onClick={() => setAdding(true)}>Add to dashboard</MenuAction>
         </>
       )}
     </Dropdown>
