@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Link } from 'react-router-dom';
 import { pct } from '../../lib/format.js';
 import Icon from './Icon.jsx';
 
@@ -98,16 +99,28 @@ export function SearchInput({ value, onChange, placeholder = 'Search' }) {
   );
 }
 
-// Small dropdown menu. `keepOpen` keeps it open while its contents are used
-// (for checkbox lists); `ariaLabel` names a trigger that has no text.
+const ITEMS = '[role="menuitem"], [role="menuitemradio"]';
+
+// Small dropdown. By default it is a menu (WAI-ARIA menu button pattern:
+// arrow keys, Home/End and Escape); with `keepOpen` it is a small dialog
+// whose contents stay open while used (a search box and checkboxes).
+// `ariaLabel` names a trigger that has no text.
 export function Dropdown({ label, children, align = 'left', className = '', keepOpen = false, ariaLabel, chevron = true }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const trigger = useRef(null);
+  const focusFirst = useRef(false);
+  const isMenu = !keepOpen;
 
   useEffect(() => {
     if (!open) return undefined;
     const close = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
-    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const esc = (e) => {
+      if (e.key !== 'Escape') return;
+      const inside = ref.current?.contains(document.activeElement);
+      setOpen(false);
+      if (inside) trigger.current?.focus();
+    };
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', esc);
     return () => {
@@ -116,13 +129,55 @@ export function Dropdown({ label, children, align = 'left', className = '', keep
     };
   }, [open]);
 
+  // Opening from the keyboard moves focus into the menu.
+  useEffect(() => {
+    if (open && focusFirst.current) {
+      focusFirst.current = false;
+      ref.current?.querySelector(isMenu ? ITEMS : 'input, button')?.focus();
+    }
+  }, [open, isMenu]);
+
+  const onTriggerKey = (e) => {
+    if (isMenu && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      focusFirst.current = true;
+      if (open) ref.current?.querySelector(ITEMS)?.focus(); else setOpen(true);
+    }
+  };
+  const onTriggerClick = (e) => {
+    // A click from the keyboard (Enter/Space has detail 0) also moves focus in.
+    if (!open && e.detail === 0) focusFirst.current = true;
+    setOpen((o) => !o);
+  };
+
+  const onMenuKey = (e) => {
+    if (!isMenu) return;
+    const items = [...ref.current.querySelectorAll(ITEMS)];
+    const i = items.indexOf(document.activeElement);
+    const go = (n) => { e.preventDefault(); items[(n + items.length) % items.length]?.focus(); };
+    if (e.key === 'ArrowDown') go(i + 1);
+    else if (e.key === 'ArrowUp') go(i < 0 ? items.length - 1 : i - 1);
+    else if (e.key === 'Home') go(0);
+    else if (e.key === 'End') go(items.length - 1);
+    else if (e.key === 'Tab') setOpen(false);
+  };
+  const onMenuClick = (e) => {
+    if (keepOpen) return;
+    const fromKeyboard = e.detail === 0 && e.target.closest?.(ITEMS);
+    setOpen(false);
+    if (fromKeyboard) trigger.current?.focus();
+  };
+
   return (
     <div className={`dropdown ${className}`} ref={ref}>
-      <button type="button" className="dropdown-trigger" aria-expanded={open} aria-label={ariaLabel} onClick={() => setOpen((o) => !o)}>
+      <button type="button" ref={trigger} className="dropdown-trigger" aria-expanded={open}
+        aria-haspopup={isMenu ? 'menu' : 'dialog'} aria-label={ariaLabel}
+        onClick={onTriggerClick} onKeyDown={onTriggerKey}>
         {label} {chevron && <Icon name="chevron" size={14} />}
       </button>
       {open && (
-        <div className={`dropdown-menu ${align}`} role="menu" onClick={keepOpen ? undefined : () => setOpen(false)}>
+        <div className={`dropdown-menu ${align}`} role={isMenu ? 'menu' : 'dialog'} aria-label={ariaLabel}
+          onKeyDown={onMenuKey} onClick={onMenuClick}>
           {children}
         </div>
       )}
@@ -130,15 +185,38 @@ export function Dropdown({ label, children, align = 'left', className = '', keep
   );
 }
 
+// Menu contents. Items are buttons or links with menu roles; headings and
+// dividers are announced as such rather than as stray text.
 export function MenuItem({ active, onClick, children }) {
   return (
-    <button type="button" role="menuitemradio" aria-checked={Boolean(active)}
+    <button type="button" role="menuitemradio" aria-checked={Boolean(active)} tabIndex={-1}
       className={`menu-item ${active ? 'active' : ''}`} onClick={onClick}>
       <span className="menu-check">{active && <Icon name="check" size={14} />}</span>
       {children}
     </button>
   );
 }
+
+export function MenuAction({ icon, onClick, children }) {
+  return (
+    <button type="button" role="menuitem" tabIndex={-1} className="menu-item plain" onClick={onClick}>
+      <span className="menu-check">{icon && <Icon name={icon} size={14} />}</span>
+      {children}
+    </button>
+  );
+}
+
+export function MenuLink({ icon, to, children }) {
+  return (
+    <Link role="menuitem" tabIndex={-1} className="menu-item plain" to={to}>
+      <span className="menu-check">{icon && <Icon name={icon} size={14} />}</span>
+      {children}
+    </Link>
+  );
+}
+
+export const MenuHeading = ({ children }) => <div className="menu-heading" role="presentation">{children}</div>;
+export const MenuDivider = () => <div className="menu-divider" role="separator" />;
 
 export function CopyButton({ text, label = 'Copy' }) {
   const [copied, setCopied] = useState(false);
